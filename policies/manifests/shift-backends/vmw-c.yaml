@@ -1,0 +1,47 @@
+# Trident backend on the VMware SVM SVM_VMW_C (Charlie datastores ds_c_0-3), used only by the NetApp Shift Toolkit:
+# Shift clones the datastore volume on ONTAP and Trident imports the clone as the VM's PVC. Every production cluster
+# gets it (ocp-a, and ocp-b so VMs can also be brought in at DC2). Volumes it creates are named <cluster>_<ns>_<pvc>.
+# Not for general provisioning: anything created with this StorageClass lands on the VMware SVM.
+# ONTAP: account trident_admin (vsadmin, http + ontapi) on SVM_VMW_C; export policy VmWare_Default already allows
+# 10.60.140.0/24 read-write with superuser (both clusters' storage addresses). Hub secret, never in git:
+#   oc -n policies create secret generic ontap-credentials-vmw-c --from-literal=username=... --from-literal=password=...
+# This backend uses ds_c_3's LIF (.217) and aggregate (N03g); VMs on ds_c_0-2 may need another backend.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ontap-credentials-vmw-c
+  namespace: trident
+type: Opaque
+data:
+  username: '{{hub fromSecret "policies" "ontap-credentials-vmw-c" "username" hub}}'
+  password: '{{hub fromSecret "policies" "ontap-credentials-vmw-c" "password" hub}}'
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-vmw-c
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-vmw-c
+  managementLIF: 10.61.250.204      # mcvmchar, default-management
+  dataLIF: 10.60.140.217            # char3-140 on nas01g, the LIF ds_c_3 is mounted from
+  svm: SVM_VMW_C
+  aggregate: aggr3g_ssd1         # ds_c_3's aggregate
+  storagePrefix: '{{hub .ManagedClusterName | replace "-" "_" hub}}'
+  credentials:
+    name: ontap-credentials-vmw-c
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas-vmw-c
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-nas
+  storagePools: "ontap-nas-vmw-c:.*"
+  fsType: nfs
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

@@ -1,0 +1,10 @@
+# Control plane nodes also run workloads, including VMs (Corp decision).
+# With mastersSchedulable: true, OpenShift removes the NoSchedule taint from the control plane nodes and
+# adds the node-role.kubernetes.io/worker label, so every policy that selects workers (vm-uplink,
+# live-migration) also configures cp01-cp03. The gitops-guardrails policy stops manual changes to it.
+apiVersion: config.openshift.io/v1
+kind: Scheduler
+metadata:
+  name: cluster
+spec:
+  mastersSchedulable: true

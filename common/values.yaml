@@ -1,0 +1,54 @@
+# Values that are the same on every cluster. Per-cluster values (banner, MetalLB range) are in
+# <cluster>-site-values: policies/site-values/ for ocp-a and ocp-b, hubs/<hub>/site-values.yaml for the hubs.
+# Must be in the "policies" namespace: hub templates can only read from the policy's own namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: common-values
+  namespace: policies
+data:
+  # console
+  consoleProductName: "Corp ACM"
+  # htpasswd: this user is cluster-admin and a member of the break-glass group
+  htpasswdAdminUser: "ocpadmin"
+  # Active Directory (OAuth identity provider and group sync), corp.example.com
+  # "true" = plain LDAP on 389 without TLS (as in the organization's existing sync); the bind password then crosses the
+  # network unencrypted. Prefer ldaps://corp.example.com:636 with ldapInsecure "false" and the ldap-ca ConfigMap.
+  ldapInsecure: "true"
+  # Login. AD cannot filter on "member of any group in an OU", so there are two forms:
+  #  - open (current): any corp.example.com person can log in and gets read-only (readOnlyForAllUsers below)
+  #  - restricted (recommended): AD team creates one parent group that contains every group in OU=Groups, then
+  #    ...?sAMAccountName?sub?(&(objectClass=person)(memberOf:1.2.840.113556.1.4.1941:=CN=<parent>,OU=Groups,OU=Platform,OU=Service%20Admin,DC=corp,DC=example,DC=com))
+  ldapUrl: "ldap://corp.example.com:389/DC=corp,DC=example,DC=com?sAMAccountName?sub?(objectClass=person)"
+  ldapSyncUrl: "ldap://corp.example.com:389"
+  ldapBindDN: "CN=svc-ldap,OU=Users,OU=Service Admin,DC=corp,DC=example,DC=com"   # a dedicated read-only account is preferred
+  ldapUsersBaseDN: "DC=corp,DC=example,DC=com"
+  ldapGroupsBaseDN: "OU=Groups,OU=Platform,OU=Service Admin,DC=corp,DC=example,DC=com"
+  ldapUsersFilter: "(objectClass=person)"
+  ldapSyncSchedule: "*/30 * * * *"                               # every 30 minutes
+  # Group sync: only these AD groups become OpenShift groups (one DN per line). Empty = every group in ldapGroupsBaseDN.
+  ldapGroupDNs: |
+    CN=OCP-Platform-Readers,OU=Groups,OU=Platform,OU=Service Admin,DC=corp,DC=example,DC=com
+    CN=OCP-Platform-Admins,OU=Groups,OU=Platform,OU=Service Admin,DC=corp,DC=example,DC=com
+    CN=OCP-VM-Admins,OU=Groups,OU=Platform,OU=Service Admin,DC=corp,DC=example,DC=com
+  # RBAC: OpenShift group name = the AD group's sAMAccountName. Each role takes one group or a comma-separated
+  # list. Every group used here must also be in ldapGroupDNs.
+  readOnlyForAllUsers: "true"                                     # cluster-reader for everyone who logs in
+  groupPlatformAdmins: "OCP-Platform-Admins"                # cluster-admin
+  groupPlatformReaders: "OCP-Platform-Readers"              # cluster-reader
+  groupVmAdmins: "OCP-VM-Admins"                      # VM admin in every namespace
+  # Alerting: critical alerts are e-mailed. Sender address and cluster name are per cluster (site values).
+  alertEmailTo: "platform-team@example.com"
+  alertSmtpSmarthost: "smtp.example.com:25"                         # CHANGEME: host:port of the relay (25 or 587)
+  alertSmtpHello: "localhost"
+  alertSmtpRequireTLS: "true"                                     # "false" only if the relay does not offer STARTTLS
+  alertSmtpAuthUser: ""                                           # empty = relay without login; else also create hub secret alertmanager-smtp
+  # 13 Image registry: size of the ReadWriteMany volume on ontap-nas
+  imageRegistrySize: "100Gi"
+  # 14 etcd backup: cron schedule (America/New_York) and how many backups to keep on the volume
+  etcdBackupSchedule: "30 1 * * *"                                # daily at 01:30
+  etcdBackupRetain: "7"
+  # 21 etcd defragmentation (single-node hubs): cron schedule (America/New_York), after the daily backup
+  etcdDefragSchedule: "30 2 * * 0"                                # Sundays at 02:30
+  # Namespace template: namespaces created by people must start with this prefix
+  namespacePrefix: "corp-"

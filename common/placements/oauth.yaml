@@ -1,0 +1,19 @@
+# The OAuth policy goes to any cluster with htpasswd or AD switched on (Placement predicates are ORed).
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-common-oauth
+  namespace: policies
+spec:
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - { key: config.example.com/htpasswd, operator: In, values: [enabled] }
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - { key: config.example.com/ad, operator: In, values: [enabled] }
+  tolerations:
+    - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
+    - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }

@@ -1,0 +1,16 @@
+apiVersion: protect.trident.netapp.io/v1
+kind: AppMirrorRelationship
+metadata:
+  name: vm-workloads
+  namespace: vm-workloads
+spec:
+  desiredState: Established                  # change to Promoted to fail over
+  sourceAppVaultRef: ontap-s3-vault
+  destinationAppVaultRef: ontap-s3-vault
+  sourceApplicationName: vm-workloads
+  sourceApplicationUID: CHANGEME             # runtime value from the primary, see README
+  namespaceMapping:
+    - source: vm-workloads
+      destination: vm-workloads
+  storageClassName: ontap-nas
+  recurrenceRule: "DTSTART:20260101T000200Z\nRRULE:FREQ=MINUTELY;INTERVAL=15"

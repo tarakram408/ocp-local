@@ -1,0 +1,22 @@
+# One per VLAN. Attaches to every namespace carrying the label.
+# Confirm field placement with: oc explain clusteruserdefinednetwork.spec.network.localnet
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: vlan-100
+spec:
+  namespaceSelector:
+    matchLabels:
+      vm-network/vlan-100: "true"
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: vm-trunk      # the bridge-mapping name from the NNCP
+      vlan:
+        mode: Access
+        access:
+          id: 100                        # CHANGEME
+      ipam:
+        mode: Disabled                   # VMs keep their own static or DHCP addresses
+      mtu: 9000                          # CHANGEME: no higher than the bond MTU

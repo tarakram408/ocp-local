@@ -1,0 +1,32 @@
+# The assisted service that installs the managed clusters. It pulls release and RHCOS images from the internet.
+# osImages limits the discovery ISOs to x86_64 4.22 (without it the image service downloads every architecture
+# and version in ACM's built-in list). Keep the build in step with the ClusterImageSet: a discovery ISO older than the
+# release it installs wrote the static network to /boot ("misplaced firstboot network configuration") and nodes came
+# up without an IP after the reboot onto disk (30 Oct - 4 Nov; fixed once the ISO matched 4.22.20).
+apiVersion: agent-install.openshift.io/v1beta1
+kind: AgentServiceConfig
+metadata:
+  name: agent                     # the name must be "agent"
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  databaseStorage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 10Gi
+  filesystemStorage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 100Gi
+  imageStorage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 50Gi
+  osImages:
+    - openshiftVersion: "4.22"
+      version: "9.8.20260715-1"        # RHCOS build of OpenShift 4.22.20, from hub-a coreos-bootimages (10 Nov)
+      cpuArchitecture: x86_64
+      url: "https://rhcos.mirror.openshift.com/art/storage/prod/streams/rhel-9.8/builds/9.8.20260715-1/x86_64/rhcos-9.8.20260715-1-live-iso.x86_64.iso"

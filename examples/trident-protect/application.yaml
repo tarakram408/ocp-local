@@ -1,0 +1,9 @@
+apiVersion: protect.trident.netapp.io/v1
+kind: Application
+metadata:
+  name: vm-workloads
+  namespace: vm-workloads
+spec:
+  includedNamespaces:
+    - namespace: vm-workloads
+      labelSelector: {}

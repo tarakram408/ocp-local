@@ -1,0 +1,16 @@
+# 16: pod egress through the host routing table (OVN-Kubernetes local gateway mode). Pods then reach the storage
+# subnet 10.60.140.0/24 directly over bond1.222, with the node's storage address, instead of through br-ex and the
+# default gateway. Needed for ONTAP S3 on the storage LIFs (Observability, hub backups, Trident Protect AppVaults):
+# the SVMs route anything that is not 10.60.140.0/24 out of their management network, so a routed path is asymmetric.
+# ipForwarding Global lets the replies arriving on bond1.222 be forwarded back to the pods.
+# Applying it restarts the ovnkube pods (brief pod network interruption, no node reboot).
+apiVersion: operator.openshift.io/v1
+kind: Network
+metadata:
+  name: cluster
+spec:
+  defaultNetwork:
+    ovnKubernetesConfig:
+      gatewayConfig:
+        routingViaHost: true
+        ipForwarding: Global

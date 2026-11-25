@@ -1,0 +1,11 @@
+flowchart LR
+  subgraph DC1
+    wa["hub-a (active hub)<br/>BackupSchedule every 2 h"]
+  end
+  subgraph DC2
+    s3[("ONTAP S3 svm-ocp-b-s3<br/>bucket acm-backup-acm<br/>(CA in dpa.yaml)")]
+    ca["hub-b (standby hub)<br/>passive Restore, sync"]
+  end
+  wa -->|"OADP/Velero"| s3
+  s3 -->|"read-only restore"| ca
+  ca -.->|"failover: activate restore,<br/>enable clusters/policies apps,<br/>cnv-mtv-integrations"| own["takes over ocp-a, ocp-b"]

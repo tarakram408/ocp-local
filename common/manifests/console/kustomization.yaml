@@ -1,0 +1,15 @@
+# Console branding: logo, product name and the cluster identity banner.
+# Replace logo.svg with the organization's logo (SVG or PNG; for PNG change the file name here and in console.yaml).
+# The console shows the masthead logo at up to 200 x 40 px.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - console.yaml
+  - notification.yaml
+configMapGenerator:
+  - name: console-logo
+    namespace: openshift-config
+    files:
+      - logo.svg
+    options:
+      disableNameSuffixHash: true

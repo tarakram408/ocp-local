@@ -1,0 +1,370 @@
+# Turns the plain manifests under manifests/ into ACM Policies, Placements and PlacementBindings.
+# Every cluster labelled env=prod gets the base policies as soon as it joins; nothing is per-cluster by name.
+# Operators are split into "<x>-operator" and "<x>-config" so the config waits for the operator's CRDs.
+apiVersion: policy.open-cluster-management.io/v1
+kind: PolicyGenerator
+metadata:
+  name: prod-policies
+# Every policy is bound through its own Placement (the default below, or the one on the policy).
+# Policy sets only group policies for reporting; they get no Placement of their own, otherwise one
+# empty-selector Placement per set would send every policy in it to every bound cluster, the hub included.
+placementBindingDefaults:
+  name: prod-policies
+policySetDefaults:
+  generatePolicySetPlacement: false
+policyDefaults:
+  generatePlacementWhenInSet: true
+  namespace: policies
+  remediationAction: enforce       # ACM reverts drift on anything declared here
+  severity: medium
+  pruneObjectBehavior: None        # deleting a policy does not delete the objects it created
+  policySets:
+    - prod-baseline
+  placement:
+    labelSelector:
+      matchExpressions:
+        - key: env
+          operator: In
+          values: [prod]
+policies:
+  # ---- hub only: copy install secrets into each cluster namespace ----
+  - name: install-secrets
+    policySets: [hub-services]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: local-cluster
+            operator: In
+            values: ["true"]
+    manifests:
+      - path: manifests/install-secrets/
+
+  # ---- hub only: VM migration between the production clusters from the hub's MTV ----
+  # MTV on the hub is installed by ACM (MultiClusterHub component cnv-mtv-integrations). The clusters are NOT labelled
+  # acm/cnv-operator-install: that label makes ACM own OpenShift Virtualization and its HyperConverged CR.
+  - name: mtv-hub-providers
+    policySets: [hub-services]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: local-cluster
+            operator: In
+            values: ["true"]
+    manifests:
+      - path: manifests/mtv-hub-providers/
+  - name: mtv-hub-maps
+    policySets: [hub-services]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: local-cluster
+            operator: In
+            values: ["true"]
+    dependencies:
+      - name: mtv-hub-providers
+    complianceType: mustonlyhave   # the map lists must match git exactly: with musthave a changed list entry was merged
+                                   # into the old one and the access mode never reached it (16 Nov)
+    manifests:
+      - path: manifests/mtv-hub-maps/
+  - name: mtv-hub-settings
+    policySets: [hub-services]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: local-cluster
+            operator: In
+            values: ["true"]
+    manifests:
+      - path: manifests/mtv-hub-settings/
+  # cluster-admin for the hub MTV provider's service account, on every cluster labelled config.example.com/mtv-provider.
+  - name: mtv-provider-access
+    policySets: [prod-virtualization]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: config.example.com/mtv-provider
+            operator: In
+            values: [enabled]
+    manifests:
+      - path: manifests/mtv-provider-access/
+
+  # ---- platform baseline ----
+  - name: cluster-hardening
+    manifests:
+      - path: manifests/hardening/
+  - name: compliance-operator
+    manifests:
+      - path: manifests/compliance-operator/
+  - name: compliance-scans
+    dependencies:
+      - name: compliance-operator
+    manifests:
+      - path: manifests/compliance-scans/
+  - name: gitops-guardrails
+    manifests:
+      - path: manifests/guardrails/
+  # Control plane nodes run workloads too (they carry the worker role as well).
+  - name: schedulable-control-plane
+    manifests:
+      - path: manifests/scheduler/
+
+  # ---- storage: NetApp Trident on ONTAP ----
+  - name: trident-operator
+    policySets: [prod-virtualization]
+    manifests:
+      - path: manifests/trident-operator/
+  - name: trident-config
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: trident-operator
+      - name: storage-network      # NFS needs the storage VLAN
+    manifests:
+      - path: manifests/trident-config/
+  # Shift Toolkit source: Trident backend + StorageClass on the VMware SVMs SVM_VMW_C (Charlie), SVM_VMW_B (Bravo) and
+  # SVM_VMW_A (Alpha), on every production cluster. Needs the hub secrets ontap-credentials-vmw-c, -vmw-b and
+  # -vmw-a (policies namespace); a missing secret puts the whole policy in template error.
+  # Namespace and service account the Trident Protect chart's pre-upgrade hook needs before Argo CD installs the chart.
+  - name: trident-protect-prereqs
+    policySets: [prod-virtualization]
+    manifests:
+      - path: manifests/trident-protect-prereqs/
+  - name: shift-backends
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: trident-config
+    manifests:
+      - path: manifests/shift-backends/
+
+  # ---- node networking ----
+  - name: nmstate-operator
+    policySets: [prod-virtualization]
+    manifests:
+      - path: manifests/nmstate-operator/
+  - name: nmstate-config
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: nmstate-operator
+    manifests:
+      - path: manifests/nmstate-config/
+  # Storage VLAN on bond1, as an OVS bridge (br-storage) that also carries the in-guest NFS VLANs for VMs.
+  # Install-time networking is management only (bond0); storage is added here.
+  - name: storage-network
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: nmstate-config
+    manifests:
+      - path: manifests/storage-network/
+  # VM uplink: bond2 (ens5f2/ens5f3) -> br-vm -> localnet vm-trunk. NIC names confirmed on ocp-a (6 Nov).
+  - name: node-network
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: nmstate-config
+    manifests:
+      - path: manifests/node-network/
+  # Live migration: bond3 (ens5f4/ens5f5) -> br-lm -> localnet lm-trunk, plus the NAD on VLAN 333 limited to the
+  # cluster's former vMotion addresses (liveMigrationSubnets/liveMigrationExclude in the site values). As tested
+  # on ocp-a (6 Nov). The NAD lives in openshift-cnv, so it waits for the virtualization operator's namespace.
+  - name: migration-network
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: nmstate-config
+      - name: virtualization-operator
+    manifests:
+      - path: manifests/migration-network/
+
+  # ---- OpenShift Virtualization ----
+  - name: virtualization-operator
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: trident-config       # a default virt storage class should exist before CNV imports boot sources
+    manifests:
+      - path: manifests/virtualization-operator/
+  - name: virtualization-config
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: virtualization-operator
+      - name: migration-network      # HyperConverged points live migration at the live-migration NAD
+    manifests:
+      - path: manifests/virtualization-config/
+  # Load-aware VM rebalancing (Kube Descheduler Operator, KubeVirtRelieveAndMigrate). The operator policy also carries
+  # the psi=1 kernel argument: its first apply reboots every node once. mode per cluster: deschedulerMode in site values.
+  - name: descheduler-operator
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/descheduler-operator/
+  - name: descheduler-config
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: descheduler-operator
+    manifests:
+      - path: manifests/descheduler-config/
+  # Node Maintenance Operator: planned node maintenance (cordon + drain, VMs live-migrate off) through NodeMaintenance
+  # CRs created per window, not in git. Both production clusters (env=prod default placement).
+  - name: node-maintenance-operator
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/nodemaintenance-operator/
+  - name: vm-namespaces
+    policySets: [prod-virtualization]
+    manifests:
+      - path: manifests/vm-namespaces/
+  # One localnet NAD per VMware port group with VMs, named after the port group (default namespace, shared by
+  # all VM namespaces). Bridge mappings: vm-trunk (node-network) for most, storage-trunk (storage-network) for
+  # the VLAN 222 and 555 port groups.
+  # Corp VM templates in the openshift namespace (Virtualization -> Templates / Catalog): disks named <vm>-disk-<n>
+  # and created without the CDI populator, so ONTAP volume names match the VM (docs/vm-disk-naming.md).
+  - name: vm-templates
+    policySets: [prod-virtualization]
+    # mustonlyhave: the templates are owned by git. With musthave a field removed in git (e.g. 'required: true' on a
+    # parameter) stays on the cluster, because musthave only adds and updates, never removes.
+    complianceType: mustonlyhave
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/vm-templates/
+  # Corp VM tags (the vSphere required tags): admission policy on new VMs, Warn or Deny per cluster (site value
+  # vmTagEnforcement), plus an inform-only report of every VM still missing tags. docs/vm-tagging.md.
+  - name: vm-tagging
+    policySets: [prod-virtualization]
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/vm-tagging/
+  - name: vm-tagging-report
+    policySets: [prod-virtualization]
+    remediationAction: inform      # report only: must never be enforce
+    severity: low
+    policyAnnotations:
+      example.com/argocd-health: report-only   # NonCompliant by design: Argo CD shows it Healthy (common-argocd-resources)
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/vm-tagging-report/
+  - name: vm-networks
+    policySets: [prod-virtualization]
+    manifests:
+      - path: manifests/vm-networks/
+
+  # ---- migration tooling: primary only, VMs land there and replicate to the failover ----
+  - name: mtv-operator
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    dependencies:
+      - name: virtualization-config
+    manifests:
+      - path: manifests/mtv-operator/
+  - name: mtv-config
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    dependencies:
+      - name: mtv-operator
+    manifests:
+      - path: manifests/mtv-config/
+  # NetApp Shift operator (Shift toolkit inside OpenShift, used by MTV plans from VMware). Primary only. The installer's
+  # bundle and PVC files are copied into the folder by hand (vendor files from the NetApp Support Site); the credentials
+  # and TLS ConfigMaps are created by hand (header of manifests/shift-operator/00-namespace.yaml).
+  - name: shift-operator
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    dependencies:
+      - name: mtv-operator
+      - name: shift-backends       # ontap-nas-vmw-c/-vmw-b/-vmw-a and their TridentBackendConfigs must exist
+    recordDiff: None               # the TLS ConfigMaps hold a private key: no diffs in the policy status
+    consolidateManifests: false    # one ConfigurationPolicy per object: the TLS ConfigMaps (40-tls.yaml) wait for the
+                                   # secret the service CA issues after the Service annotation in the same folder; with
+                                   # one consolidated template, that wait blocked the annotation itself (16 Nov)
+    manifests:
+      - path: manifests/shift-operator/
+  # VMware source for MTV: provider vcenter01 (vCenter login from the hub secret vcenter-credentials-<cluster>) and the
+  # maps vcenter01-to-ocp. Plans stay per wave, by hand (migration/).
+  - name: mtv-vmware-source
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    dependencies:
+      - name: mtv-operator
+      - name: shift-operator       # the storage map targets ontap-nas-vmw-c/-vmw-b/-vmw-a (Shift)
+    # Also the VDDK provider vcenter01-vddk and its maps (warm migrations to ontap-nas) and the image-pull
+    # RoleBinding: docs/vm-migration-warm-vddk.md. The VDDK image itself is built by scripts/build-vddk-image.sh.
+    # The maps are mustonlyhave (23 Nov): the VDDK map was first made in the console, whose entries name the datastore
+    # by id; musthave added git's by-name entries next to them, so ds_c_* and ds_b_* showed twice (same as MIG-1).
+    manifests:
+      - path: manifests/mtv-vmware-source/provider.yaml
+      - path: manifests/mtv-vmware-source/provider-vddk.yaml
+      - path: manifests/mtv-vmware-source/vddk-image-pullers.yaml
+      - path: manifests/mtv-vmware-source/storagemap.yaml
+        complianceType: mustonlyhave
+      - path: manifests/mtv-vmware-source/storagemap-vddk.yaml
+        complianceType: mustonlyhave
+      - path: manifests/mtv-vmware-source/networkmap.yaml
+        complianceType: mustonlyhave
+      - path: manifests/mtv-vmware-source/networkmap-vddk.yaml
+        complianceType: mustonlyhave
+  # Temporary: the cluster-admin token the NetApp team's Shift Toolkit needs. Delete after the migration.
+  - name: shift-toolkit-access
+    policySets: [prod-site]
+    pruneObjectBehavior: DeleteAll   # removing this policy revokes the access
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    dependencies:
+      - name: mtv-operator         # the openshift-mtv namespace must exist
+    manifests:
+      - path: manifests/shift-toolkit-access/
+
+  # ---- site-specific placeholders ----
+  - name: site-primary
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [primary]
+    manifests:
+      - path: manifests/site-primary/
+  - name: site-failover
+    policySets: [prod-site]
+    placement:
+      labelSelector:
+        matchExpressions:
+          - key: dr-role
+            operator: In
+            values: [failover]
+    manifests:
+      - path: manifests/site-failover/
+policySets:
+  - name: hub-services
+    description: Runs on the hub only.
+  - name: prod-baseline
+    description: Applies to every production cluster.
+  - name: prod-virtualization
+    description: Storage, node networking and OpenShift Virtualization on every production cluster.
+  - name: prod-site
+    description: Differences between the primary and failover sites.

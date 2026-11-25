@@ -1,0 +1,14 @@
+# Lets the hub's Bare Metal Operator manage BareMetalHosts in the managed-cluster namespaces.
+apiVersion: metal3.io/v1alpha1
+kind: Provisioning
+metadata:
+  name: provisioning-configuration
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  provisioningNetwork: Disabled   # virtual media only, no PXE network
+  watchAllNamespaces: true
+  # Set on hub-a 30 Oct: Ironic hands the blade CIMCs http://<hub IP>:6180/redfish/boot-<node>.iso instead of the
+  # https://...:6183 link signed by the hub's own CA. The CIMC mount still failed over HTTP (open item,
+  # docs/bare-metal-provisioning.md); keep or revert once the cause is known. Applying it restarts metal3.
+  disableVirtualMediaTLS: true

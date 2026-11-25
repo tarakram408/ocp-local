@@ -1,0 +1,21 @@
+# Replaces the default *.apps certificate with the organization's. The certificate and key come from the hub
+# secret <cluster>-ingress-cert in the "policies" namespace (never in git; see common/README.md), with
+# tls.crt holding the full chain. The ingress pods roll over to it without downtime.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: custom-ingress-cert
+  namespace: openshift-ingress
+type: kubernetes.io/tls
+data:
+  tls.crt: '{{hub fromSecret "policies" (printf "%s-ingress-cert" .ManagedClusterName) "tls.crt" hub}}'
+  tls.key: '{{hub fromSecret "policies" (printf "%s-ingress-cert" .ManagedClusterName) "tls.key" hub}}'
+---
+apiVersion: operator.openshift.io/v1
+kind: IngressController
+metadata:
+  name: default
+  namespace: openshift-ingress-operator
+spec:
+  defaultCertificate:
+    name: custom-ingress-cert

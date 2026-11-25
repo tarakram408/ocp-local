@@ -1,0 +1,22 @@
+# hco.kubevirt.io/v1beta1 keeps liveMigrationConfig directly under spec. (The newer hco.kubevirt.io/v1 API, which
+# "oc patch" and the console use, nests it under spec.virtualization; that path is rejected in v1beta1 with
+# "unknown field spec.virtualization", ocp-b 10 Nov.) Both versions are the same object on the cluster.
+apiVersion: hco.kubevirt.io/v1beta1
+kind: HyperConverged
+metadata:
+  name: kubevirt-hyperconverged
+  namespace: openshift-cnv
+spec:
+  featureGates:
+    decentralizedLiveMigration: true # cross-cluster live migration ocp-a <-> ocp-b (generally available since
+                                     # OpenShift Virtualization 4.21.1). Starts virt-synchronization-controller; needs both
+                                     # clusters' live-migration NADs on the shared 10.60.160.0/25 over VLAN 333 (stretched
+                                     # DC1-DC2, checked 12 Nov: ~1 ms both ways). On 4.22 the controller already ran before
+                                     # this was set and the field reads back empty; kept as a harmless statement of intent.
+                                     # The clusters must also trust each other's KubeVirt CA: hub CronJob
+                                     # kubevirt-ca-exchange (policies/manifests/mtv-hub-settings/).
+  liveMigrationConfig:
+    parallelMigrationsPerCluster: 5
+    parallelOutboundMigrationsPerNode: 2
+    completionTimeoutPerGiB: 800
+    network: live-migration          # NAD from the migration-network policy (VLAN 333)

@@ -1,0 +1,59 @@
+# NetApp's be-otsc3.yaml (basic backend-tbc-ontap-nas.yaml sample plus a name template), once per data LIF.
+# Trident's dataLIF takes one address, so SVM_TEST's two NFS data LIFs are two backends on the same SVM and
+# account: volumes are spread across both by the StorageClass (storagePools lists both), so NFS traffic uses
+# both nodes. ONTAP moves each LIF to the partner node on failover, so a node outage does not lose either path.
+# Advanced fields stay commented until the NetApp storage session settles them; keep them in step with
+# policies/manifests/trident-config/trident.yaml.
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: be-ontap-nas-hub-a-03g
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-hub-a-03g
+  managementLIF: 10.61.250.79           # SVM_TEST management LIF (VLAN 10); HTTPS from the hub confirmed (401/200)
+  dataLIF: 10.60.140.71                 # NFS data LIF on NAS01G, a0a-222 (storage VLAN)
+  svm: SVM_TEST
+  credentials:
+    name: be-ontap-nas-hub-a-secret          # one secret for both backends
+  storagePrefix: hub_a
+  aggregate: aggr3g_ssd1             # NAS01G's data aggregate, so each volume is served by the node that holds its LIF;
+                                         # must be in SVM_TEST's aggr-list (vserver show -vserver SVM_TEST -fields aggr-list)
+  # nfsMountOptions: nfsvers=4.1
+  # limitAggregateUsage: 80%
+  defaults:
+    nameTemplate: "{{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}"
+    # spaceReserve: none
+    # snapshotPolicy: none
+    # snapshotReserve: "0"
+    # snapshotDir: "false"
+    # exportPolicy: default
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: be-ontap-nas-hub-a-03h
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-hub-a-03h
+  managementLIF: 10.61.250.79           # SVM_TEST management LIF (VLAN 10); HTTPS from the hub confirmed (401/200)
+  dataLIF: 10.60.140.72                 # NFS data LIF on NAS01H, a0a-222 (storage VLAN)
+  svm: SVM_TEST
+  credentials:
+    name: be-ontap-nas-hub-a-secret          # one secret for both backends
+  storagePrefix: hub_a
+  aggregate: aggr3h_ssd1             # NAS01H's data aggregate, so each volume is served by the node that holds its LIF;
+                                         # must be in SVM_TEST's aggr-list (vserver show -vserver SVM_TEST -fields aggr-list)
+  # nfsMountOptions: nfsvers=4.1
+  # limitAggregateUsage: 80%
+  defaults:
+    nameTemplate: "{{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}"
+    # spaceReserve: none
+    # snapshotPolicy: none
+    # snapshotReserve: "0"
+    # snapshotDir: "false"
+    # exportPolicy: default

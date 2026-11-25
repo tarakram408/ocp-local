@@ -1,0 +1,25 @@
+# NetApp's sc-otsc3.yaml and snapclass-trident.yaml for the hub. Same names as on the production clusters.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-nas
+  storagePools: "ontap-nas-hub-a-03g:.*;ontap-nas-hub-a-03h:.*"   # both data LIFs; new volumes are spread across them
+  provisioningType: thin
+  snapshots: "true"
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: trident-snapshotclass
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: csi.trident.netapp.io
+deletionPolicy: Delete

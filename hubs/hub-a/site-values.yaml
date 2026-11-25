@@ -1,0 +1,15 @@
+# Per-hub values for the common/ policies. On each hub the hub manages itself as "local-cluster", so the
+# policies look up "local-cluster-site-values"; this file is applied only to hub-a by its hub-config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-cluster-site-values
+  namespace: policies
+data:
+  consoleProductName: "Corp HUB-A"                # browser tab title (common console policy)
+  bannerText: "ACM HUB - hub-a (main hub) - changes are made through git only"
+  bannerColor: "#ffffff"
+  bannerBackground: "#00407a"
+  # metallbAddresses: "172.28.55.CHANGEME-172.28.55.CHANGEME"   # CHANGEME: only if MetalLB is enabled on this hub
+  alertClusterName: "hub-a"                         # shown in the alert e-mail subject
+  alertEmailFrom: "openshift-hub-alert@example.com"          # CHANGEME if the mail team assigns a different sender

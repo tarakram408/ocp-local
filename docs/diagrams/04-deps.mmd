@@ -1,0 +1,24 @@
+flowchart LR
+  to["trident-operator"] --> tc["trident-config<br/>(backends, ontap-nas)"]
+  nmo["nmstate-operator"] --> nmc["nmstate-config"]
+  nmc --> sn["storage-network<br/>(VLAN 222)"]
+  nmc --> nn["node-network<br/>(vm-uplink, VLANs)"]
+  sn --> tc
+  tc --> vo["virtualization-operator"]
+  tc --> sb["shift-backends<br/>(SVM_VMW_C, SVM_VMW_B, SVM_VMW_A)"]
+  nmc --> mn["migration-network<br/>(VLAN 333, /25)"]
+  vo --> mn
+  vo --> vc["virtualization-config<br/>(HyperConverged)"]
+  mn --> vc
+  vc --> do["descheduler-operator<br/>(psi=1 → reboot)"]
+  do --> dc["descheduler-config"]
+  vc --> mo["mtv-operator<br/>(primary)"]
+  mo --> mc["mtv-config"]
+  mo --> so["shift-operator<br/>(primary)"]
+  sb --> so
+  so --> mvs["mtv-vmware-source<br/>(primary)"]
+  mo --> mvs
+  vc --> nmop["node-maintenance-operator"]
+  vc --> vt["vm-templates<br/>(disk &lt;vm&gt;-disk-0, tag keys)"]
+  vc --> vtg["vm-tagging<br/>(Warn / Deny)"]
+  vc --> vtr["vm-tagging-report<br/>(inform only)"]

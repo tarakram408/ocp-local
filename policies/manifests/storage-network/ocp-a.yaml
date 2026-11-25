@@ -1,0 +1,558 @@
+# Storage network for ocp-a, added after install (management only at install time).
+# One NNCP per node: same bond and VLAN everywhere, a different static address on 10.60.140.0/24.
+# bond1 is a port of the OVS bridge br-storage: the node's NFS address sits on the internal port nfs222
+# (access VLAN 222), and the bridge mapping storage-trunk gives VMs the in-guest NFS VLANs 222 and 555,
+# which use the storage uplinks on VMware too. Trident mounts NFS through nfs222.
+# Both clusters' files are in one policy; an NNCP whose hostname matches no node does nothing.
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-cp01
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-cp01.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:05 / 02:00:00:00:00:06
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.100, prefix-length: 24 }]   # ocp-a-cp01-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-cp02
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-cp02.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:07 / 02:00:00:00:00:08
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.101, prefix-length: 24 }]   # ocp-a-cp02-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-cp03
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-cp03.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:09 / 02:00:00:00:00:0a
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.102, prefix-length: 24 }]   # ocp-a-cp03-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn01
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn01.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:0b / 02:00:00:00:00:0c
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.108, prefix-length: 24 }]   # ocp-a-wn01-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn02
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn02.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:0d / 02:00:00:00:00:0e
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.109, prefix-length: 24 }]   # ocp-a-wn02-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn03
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn03.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:0f / 02:00:00:00:00:10
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.115, prefix-length: 24 }]   # ocp-a-wn03-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn04
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn04.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:11 / 02:00:00:00:00:12
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.116, prefix-length: 24 }]   # ocp-a-wn04-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn05
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn05.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:13 / 02:00:00:00:00:14
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.120, prefix-length: 24 }]   # ocp-a-wn05-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn06
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn06.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:15 / 02:00:00:00:00:16
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.121, prefix-length: 24 }]   # ocp-a-wn06-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn07
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn07.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:17 / 02:00:00:00:00:18
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.122, prefix-length: 24 }]   # ocp-a-wn07-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn08
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn08.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:19 / 02:00:00:00:00:1a
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.123, prefix-length: 24 }]   # ocp-a-wn08-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-ocp-a-wn09
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp-a-wn09.ocp-a.example.com      # must equal the node name (oc get nodes)
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # INFRA_vmstor A/B (8-vNIC OpenShift UCS layout); MACs 02:00:00:00:00:1b / 02:00:00:00:00:1c
+      # OVS bridge on bond1: carries the node's NFS address (access port on VLAN 222) and, through the
+      # OVN mapping "storage-trunk", the VM networks on VLANs 222 and 555 (policies/manifests/vm-networks/).
+      - name: br-storage
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options: { stp: false }
+          port:
+            - name: bond1
+            - name: nfs222
+              vlan: { mode: access, tag: 222 }     # NFS VLAN 222 (confirmed 5 Nov)
+      - name: nfs222
+        type: ovs-interface
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.124, prefix-length: 24 }]   # ocp-a-wn09-stor (host sheet)
+        ipv6: { enabled: false }
+    ovn:
+      bridge-mappings:
+        - localnet: storage-trunk              # VM networks on the storage VLANs (vlan222, vlan555)
+          bridge: br-storage
+          state: present

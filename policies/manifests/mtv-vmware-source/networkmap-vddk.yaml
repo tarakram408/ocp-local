@@ -1,0 +1,36 @@
+# MTV network map for the VDDK provider vcenter01-vddk (warm migrations): the same port group -> NAD pairs as
+# vcenter01-to-ocp (networkmap.yaml). A map belongs to one source provider, so the VDDK provider needs its own.
+# Keep both files in step when a port group is added.
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: vcenter01-vddk-to-ocp
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: vcenter01-vddk
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+  - source:
+      name: dv_vm_vlan101
+    destination:
+      type: multus
+      namespace: default
+      name: vm-vlan101
+  - source:
+      name: dv_vm_vlan102
+    destination:
+      type: multus
+      namespace: default
+      name: vm-vlan102
+  - source:
+      name: vm-vlan101
+    destination:
+      type: multus
+      namespace: default
+      name: vm-storage-vlan555

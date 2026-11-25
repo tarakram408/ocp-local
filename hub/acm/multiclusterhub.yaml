@@ -1,0 +1,17 @@
+apiVersion: operator.open-cluster-management.io/v1
+kind: MultiClusterHub
+metadata:
+  name: multiclusterhub
+  namespace: open-cluster-management
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  overrides:
+    components:
+      - name: siteconfig          # the operator that turns a ClusterInstance into install CRs
+        enabled: true
+      - name: cluster-backup      # hub backup and restore (OADP in open-cluster-management-backup); see hub/backup/
+        enabled: true
+      - name: cnv-mtv-integrations  # off on both hubs here, switched on for hub-a by its patch (hubs/hub-a/kustomization.yaml).
+        enabled: false              # Explicit: the MCH operator copies every component into spec, so leaving it out does not
+                                    # turn it off. Keep this entry third: the hub-a patch replaces components/2.

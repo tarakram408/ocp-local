@@ -1,0 +1,20 @@
+apiVersion: protect.trident.netapp.io/v1
+kind: AppVault
+metadata:
+  name: ontap-s3-vault
+  namespace: trident-protect
+spec:
+  providerType: ontap-s3
+  providerConfig:
+    s3:
+      bucketName: trident-protect            # CHANGEME
+      endpoint: s3.ontap.example.com         # CHANGEME
+  providerCredentials:
+    accessKeyID:
+      valueFromSecret:
+        name: appvault-s3
+        key: accessKeyID
+    secretAccessKey:
+      valueFromSecret:
+        name: appvault-s3
+        key: secretAccessKey

@@ -1,0 +1,52 @@
+# Report only (inform): every VM outside openshift-* namespaces that is missing a required Corp tag, including VMs
+# brought in by MTV (not checked when created) and VMs whose tags were removed later.
+# Governance -> Policies -> vm-tagging-report -> the cluster -> View details: one line per VM missing tags (labels and
+# annotations listed separately). Which tags: the jq command in docs/vm-tagging.md (Checking). No recordDiff: the
+# ConfigurationPolicy on the managed clusters does not accept that field. Never changes a VM: the policy is inform, and remediationAction must stay inform.
+# Tag VMs with scripts/tag-vm.sh (one VM, or a CSV for a migration wave). docs/vm-tagging.md.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: vm-tagging-report
+spec:
+  remediationAction: inform
+  severity: low
+  object-templates-raw: |
+    {{- $reqL := "example.com/environment,example.com/support-level,example.com/dr-tier,example.com/os" }}
+    {{- $reqA := "example.com/application,example.com/charging-account,example.com/created-by,example.com/owner-department,example.com/owner-department-contact,example.com/support-department,example.com/support-department-contact" }}
+    {{- range $vm := (lookup "kubevirt.io/v1" "VirtualMachine" "" "").items }}
+    {{- if not (hasPrefix "openshift" $vm.metadata.namespace) }}
+    {{- $l := $vm.metadata.labels }}
+    {{- $a := $vm.metadata.annotations }}
+    {{- $missL := false }}
+    {{- range $k := split "," $reqL }}{{- if or (not $l) (not (index $l $k)) }}{{- $missL = true }}{{- end }}{{- end }}
+    {{- $missA := false }}
+    {{- range $k := split "," $reqA }}{{- if or (not $a) (not (index $a $k)) }}{{- $missA = true }}{{- end }}{{- end }}
+    {{- if $missL }}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: kubevirt.io/v1
+        kind: VirtualMachine
+        metadata:
+          name: {{ $vm.metadata.name }}
+          namespace: {{ $vm.metadata.namespace }}
+          labels:
+    {{- range $k := split "," $reqL }}{{- if or (not $l) (not (index $l $k)) }}
+            {{ $k }}: MISSING
+    {{- end }}{{- end }}
+    {{- end }}
+    {{- if $missA }}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: kubevirt.io/v1
+        kind: VirtualMachine
+        metadata:
+          name: {{ $vm.metadata.name }}
+          namespace: {{ $vm.metadata.namespace }}
+          annotations:
+    {{- range $k := split "," $reqA }}{{- if or (not $a) (not (index $a $k)) }}
+            {{ $k }}: MISSING
+    {{- end }}{{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}

@@ -1,0 +1,565 @@
+# From the NetApp Shift installer, deploy/bundle.yaml (images quay.io/netapp/shift-toolkit:2.0.0 and
+# shift-toolkit-listener:2.0.0), unchanged. Applied by the shift-operator policy; see docs/shift-operator.md.
+# Needs, created by hand first: secret shift-credentials and ConfigMaps shift-toolkit-service-server-crt,
+# shift-toolkit-service-server-key, shift-toolkit-service-ca (the pods wait in ContainerCreating until they exist).
+# =============================================================================
+# shift-toolkit-listener + NetApp Shift — single deployment bundle (shift namespace)
+# =============================================================================
+#
+# PREREQUISITES
+#
+# Software requirements (must be installed and operational before deploying):
+#
+#   - NetApp Trident CSI v26.06 or later
+#       Acts as the CSI provisioner. Receives PVC import requests from the Shift
+#       toolkit, applies logic based on PVC annotations/labels to determine whether
+#       to process the request directly or redirect it to Shift.
+#
+#   - Migration Toolkit for Virtualization (MTV) v2.12 or later
+#       Orchestrates VM migration plans, issues PVC requests for storage
+#       provisioning during migration, and adds annotations to guide downstream
+#       processing.
+#
+# Manual steps (create these before applying this bundle):
+#
+#   1. Create the shift namespace:
+#        oc create namespace shift
+#
+#   2. Create the shift-credentials secret (used by both Shift and the listener):
+#        oc create secret generic shift-credentials -n shift \
+#          --from-literal=username=admin \
+#          --from-literal=password='<password>'
+#
+#   3. Create the TLS cert + key the Shift service uses to serve HTTPS. The cert
+#      must be issued for CN/SAN shift-toolkit-service.shift.svc.cluster.local. The keys
+#      MUST be server.cert and server.key respectively:
+#        oc create configmap shift-toolkit-service-server-crt -n shift \
+#          --from-file=server.cert=server.cert
+#        oc create configmap shift-toolkit-service-server-key -n shift \
+#          --from-file=server.key=server.key
+#
+#   4. Create the CA bundle the listener uses to verify the Shift service's
+#      self-signed TLS certificate (CN/SAN: shift-toolkit-service.shift.svc.cluster.local).
+#      Point --from-file at your server.cert (PEM) file; the key MUST be ca.crt:
+#        oc create configmap shift-toolkit-service-ca -n shift \
+#          --from-file=ca.crt=ca.cert
+#      With this in place the listener runs with INSECURE_TLS=false and verifies
+#      the Shift certificate against this bundle (see SHIFT_CA_CERT_FILE below).
+#
+#   5. Create the persistent volumes for the Shift filedb (database) and logs.
+#      Before applying, edit deploy/filedb-pvc.yaml and deploy/logs-pvc.yaml and
+#      set storageClassName to your cluster's StorageClass (e.g. ontap-storageclass).
+#      Then apply both PVCs — they MUST exist before the bundle is applied:
+#        oc apply -f deploy/filedb-pvc.yaml
+#        oc apply -f deploy/logs-pvc.yaml
+#
+# DEPLOY:
+#        oc apply -f deploy/bundle.yaml
+#
+# UNDEPLOY (leaves the namespace and secret intact):
+#        oc delete -f deploy/bundle.yaml --ignore-not-found
+#
+# NOTE: The SecurityContextConstraints object below is OpenShift-only. On vanilla
+#       Kubernetes, delete that document before applying.
+#
+# =============================================================================
+# OFFLINE INSTALLATION (air-gapped / disconnected clusters)
+# =============================================================================
+#
+# When the cluster cannot reach quay.io, load the image tarballs into the
+# OpenShift internal registry before applying this bundle.
+#
+# No external registry route is required. Both the push and the bundle image
+# refs use image-registry.openshift-image-registry.svc:5000 — reachable from
+# the node via the cluster overlay network, cert signed by the cluster CA.
+#
+# Prerequisites on the node running these commands:
+#   - oc CLI logged in as cluster-admin (kubeadmin or equivalent)
+#   - skopeo installed (included in RHEL/CoreOS toolbox)
+#   - Image tarballs transferred to the node:
+#       shift-toolkit-2.0.0-image.tar
+#       shift-toolkit-listener-2.0.0-image.tar
+#
+# Step 1 — enable the internal registry (one-time; skip if route already exists):
+#        oc patch configs.imageregistry.operator.openshift.io cluster \
+#          --type=merge -p '{"spec":{"defaultRoute":true}}'
+#        oc get route default-route -n openshift-image-registry
+#
+# Step 2 — write registry credentials using the active oc session.
+#          Do NOT use a raw SA token (oc create token) — it fails mid-upload
+#          because the registry's blob redirect does not forward a bare Bearer
+#          token. oc registry login writes credentials the redirect flow honours:
+#        REGISTRY=image-registry.openshift-image-registry.svc:5000
+#        oc registry login --skip-check \
+#          --registry=$REGISTRY \
+#          --to=/tmp/registry-auth.json
+#
+# Step 3 — push both images using skopeo with the auth file:
+#        skopeo copy \
+#          docker-archive:shift-toolkit-2.0.0-image.tar \
+#          docker://$REGISTRY/shift/shift-toolkit:2.0.0 \
+#          --dest-tls-verify=false \
+#          --dest-authfile=/tmp/registry-auth.json
+#
+#        skopeo copy \
+#          docker-archive:shift-toolkit-listener-2.0.0-image.tar \
+#          docker://$REGISTRY/shift/shift-toolkit-listener:2.0.0 \
+#          --dest-tls-verify=false \
+#          --dest-authfile=/tmp/registry-auth.json
+#
+# Step 4 — patch the image references in this file to the internal registry:
+#        sed -i \
+#          -e "s|quay.io/netapp/shift-toolkit:2.0.0|$REGISTRY/shift/shift-toolkit:2.0.0|g" \
+#          -e "s|quay.io/netapp/shift-toolkit-listener:2.0.0|$REGISTRY/shift/shift-toolkit-listener:2.0.0|g" \
+#          -e "s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g" \
+#          deploy/bundle.yaml
+#
+# Step 5 — apply the bundle:
+#        oc apply -f deploy/bundle.yaml
+#
+# =============================================================================
+---
+# OpenShift SCC granting the Shift and listener service accounts the access they need.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: shift-toolkit-stack
+  labels:
+    app: shift-toolkit
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfiles: 'runtime/default'
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+runAsUser:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+seccompProfiles:
+  - runtime/default
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+users:
+  - system:serviceaccount:shift:shift-toolkit-listener
+  - system:serviceaccount:shift:shift-toolkit-sa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shift-toolkit-sa
+  namespace: shift
+  labels:
+    app: shift-toolkit
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shift-toolkit-listener
+  namespace: shift
+  labels:
+    app: shift-toolkit-listener
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-config
+  namespace: shift
+  labels:
+    app: shift-toolkit
+data:
+  config.json: |
+    {
+        "tenant": {},
+        "scheduler": {},
+        "recovery": {
+            "app": {
+                "deleteFilesInVolumes": "postimport",
+                "workflows": {
+                    "migrate": {
+                        "discoverSourceVolume": {
+                            "globalThrottlerOptions": {
+                                "qeueueSize": 5
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-version
+  namespace: shift
+  labels:
+    app: shift-toolkit
+data:
+  version.json: |
+    {"version": "1.0"}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-env
+  namespace: shift
+  labels:
+    app: shift-toolkit
+data:
+  SHIFT_DELETE_FILES_IN_VOLUMES: "skip"
+  SHIFT_THROTTLER_VALIDATE_ONTAP_ACCESS: '{"qeueueName":"validateOntapAccessQueue","qeueueSize":25,"useGlobalThrottler":true}'
+  SHIFT_THROTTLER_DISCOVER_SOURCE_VOLUME: '{"qeueueName":"discoverSourceVolumeQueue","qeueueSize":25,"useGlobalThrottler":true}'
+  SHIFT_THROTTLER_CREATE_VOL_SNAPSHOT: '{"qeueueName":"createVolSnapshotQueue","qeueueSize":25,"useGlobalThrottler":true}'
+  SHIFT_THROTTLER_CLONE_SOURCE_VOLUME: '{"qeueueName":"cloneSourceVolumeQueue","qeueueSize":25,"useGlobalThrottler":true}'
+  SHIFT_THROTTLER_CONVERT_TO_RAW_FOR_OPENSHIFT: '{"qeueueName":"convertToRawForOpenshiftQueue","qeueueSize":5,"useGlobalThrottler":true}'
+  SHIFT_THROTTLER_DELETE_ALL_FILES_IN_VOLUMES: '{"qeueueName":"deleteAllFilesInVolumesQueue","qeueueSize":25,"useGlobalThrottler":true}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shift-toolkit
+  namespace: shift
+  labels:
+    app: shift-toolkit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shift-toolkit
+  template:
+    metadata:
+      labels:
+        app: shift-toolkit
+    spec:
+      serviceAccountName: shift-toolkit-sa
+      securityContext:
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: shift-toolkit
+          image: quay.io/netapp/shift-toolkit:2.0.0
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: SHIFT_ADMIN_LOGIN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: shift-credentials
+                  key: username
+            - name: SHIFT_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shift-credentials
+                  key: password
+          envFrom:
+            - configMapRef:
+                name: shift-toolkit-env
+          ports:
+            - containerPort: 3698
+              name: api
+            - containerPort: 3704
+              name: secondary
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.json
+              subPath: config.json
+            - name: version
+              mountPath: /app/version.json
+              subPath: version.json
+            - name: logs
+              mountPath: /app/logs
+            - name: filedb
+              mountPath: /app/storage/filedb
+            - name: filevault
+              mountPath: /app/storage/filevault
+            # TLS cert + key the Shift service reads to serve HTTPS (storage/certs).
+            - name: server-cert
+              mountPath: /app/storage/certs/server.cert
+              subPath: server.cert
+              readOnly: true
+            - name: server-key
+              mountPath: /app/storage/certs/server.key
+              subPath: server.key
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: shift-toolkit-config
+        - name: version
+          configMap:
+            name: shift-toolkit-version
+        - name: logs
+          persistentVolumeClaim:
+            claimName: shift-toolkit-logs
+        - name: filedb
+          persistentVolumeClaim:
+            claimName: shift-toolkit-filedb
+        - name: filevault
+          emptyDir: {}
+        - name: server-cert
+          configMap:
+            name: shift-toolkit-service-server-crt
+        - name: server-key
+          configMap:
+            name: shift-toolkit-service-server-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shift-toolkit-service
+  namespace: shift
+  labels:
+    app: shift-toolkit
+spec:
+  type: ClusterIP
+  selector:
+    app: shift-toolkit
+  ports:
+    - name: api
+      port: 3698
+      targetPort: api
+    - name: secondary
+      port: 3704
+      targetPort: secondary
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shift-toolkit-listener
+  labels:
+    app: shift-toolkit-listener
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - trident.netapp.io
+    resources:
+      - tridentbackends
+      - tridentbackendconfigs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shift-toolkit-listener
+  labels:
+    app: shift-toolkit-listener
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: shift-toolkit-listener
+subjects:
+  - kind: ServiceAccount
+    name: shift-toolkit-listener
+    namespace: shift
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shift-toolkit-listener-shift-secrets
+  namespace: shift
+  labels:
+    app: shift-toolkit-listener
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+    resourceNames:
+      - shift-credentials
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shift-toolkit-listener-shift-secrets
+  namespace: shift
+  labels:
+    app: shift-toolkit-listener
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shift-toolkit-listener-shift-secrets
+subjects:
+  - kind: ServiceAccount
+    name: shift-toolkit-listener
+    namespace: shift
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shift-toolkit-listener-trident-secrets
+  namespace: trident
+  labels:
+    app: shift-toolkit-listener
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shift-toolkit-listener-trident-secrets
+  namespace: trident
+  labels:
+    app: shift-toolkit-listener
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shift-toolkit-listener-trident-secrets
+subjects:
+  - kind: ServiceAccount
+    name: shift-toolkit-listener
+    namespace: shift
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shift-toolkit-listener
+  namespace: shift
+  labels:
+    app: shift-toolkit-listener
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shift-toolkit-listener
+  template:
+    metadata:
+      labels:
+        app: shift-toolkit-listener
+    spec:
+      serviceAccountName: shift-toolkit-listener
+      containers:
+        - name: shift-toolkit-listener
+          image: quay.io/netapp/shift-toolkit-listener:2.0.0
+          imagePullPolicy: Always
+          args:
+            - --leader-elect=false
+          env:
+            - name: TEST_MODE
+              value: "false"
+            - name: TRIDENT_NAMESPACE
+              value: trident
+            - name: SHIFT_NAMESPACE
+              value: shift
+            - name: SHIFT_CREDENTIALS_SECRET
+              value: shift-credentials
+            - name: SHIFT_API_URL
+              value: https://shift-toolkit-service.shift.svc.cluster.local:3704/api/recovery/conversion-pvc
+            - name: WORKERS
+              value: "2"
+            - name: RETRY_INTERVAL_START
+              value: 1s
+            - name: RETRY_INTERVAL_MAX
+              value: 5m
+            - name: INSECURE_TLS
+              value: "false"
+            - name: SHIFT_CA_CERT_FILE
+              value: /etc/shift-tls/ca.crt
+            - name: METRICS_ADDR
+              value: "0"
+          ports:
+            - name: healthz
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: healthz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: shift-toolkit-service-ca
+              mountPath: /etc/shift-tls
+              readOnly: true
+      volumes:
+        - name: shift-toolkit-service-ca
+          configMap:
+            name: shift-toolkit-service-ca
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux

@@ -1,0 +1,10 @@
+# Shift annotations on the Alpha StorageClass (created by the shift-backends policy, vmw-a.yaml), same as
+# 10-storageclass-shift.yaml for Charlie: PVCs that MTV creates on it are handed to the Shift listener.
+# musthave: only these annotations are added.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas-vmw-a
+  annotations:
+    shift.netapp.io/storage-class-type: shift
+    shift.netapp.io/trident-backend-uuid: '{{ (lookup "trident.netapp.io/v1" "TridentBackendConfig" "trident" "ontap-nas-vmw-a").status.backendInfo.backendUUID }}'

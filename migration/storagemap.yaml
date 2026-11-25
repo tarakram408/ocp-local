@@ -1,0 +1,30 @@
+# MTV storage map, VMware -> ocp-a, for the NetApp Shift operator (docs/shift-operator.md).
+# Every VMware datastore that holds VMs to migrate maps to the StorageClass on the SVM that backs that datastore,
+# annotated for Shift (shift.netapp.io/storage-class-type: shift): MTV then creates the disk PVCs there, the Shift
+# listener hands them to Shift, and Shift clones and converts the VMDKs in place on that SVM (no copy).
+#   Charlie datastores (SVM SVM_VMW_C) -> ontap-nas-vmw-c (policies shift-backends + shift-operator)
+#   Bravo (SVM_VMW_B), Delta: need their own Trident backend + StorageClass first (details pending from storage team)
+# Datastore names exactly as in vCenter: ocp-a console > Migration for Virtualization > Providers > vcenter >
+# Datastores (inventory), or Storage maps > Create, which lists them.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: vcenter01-to-ocp
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: vcenter01
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    - source:
+        name: CHANGEME-charlie-datastore-1    # vCenter name of a Charlie NFS datastore
+      destination:
+        storageClass: ontap-nas-vmw-c
+    # - source:
+    #     name: CHANGEME-charlie-datastore-2
+    #   destination:
+    #     storageClass: ontap-nas-vmw-c

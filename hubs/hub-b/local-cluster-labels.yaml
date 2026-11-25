@@ -1,0 +1,29 @@
+# Switches for the common/ day-2 configuration on hub-b itself. The common-hub-labels policy copies each
+# key below onto the hub's own ManagedCluster (local-cluster) as config.example.com/<key>.
+# "enabled" installs the feature, anything else (for example "disabled") skips it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-cluster-labels
+  namespace: policies
+data:
+  htpasswd: enabled             # 1 local break-glass admin
+  ad: enabled                   # 2 Active Directory login + group sync (needs the hub secret ldap-bind)
+  etcd-encryption: enabled      # 3
+  ntp: enabled                  # 4 MachineConfig: the hub reboots once
+  console: enabled              # 5 logo, product name, banner
+  namespace-template: enabled   # 6
+  rbac: enabled                 # 7
+  ingress-cert: disabled        # 8 enable once the hub secret local-cluster-ingress-cert exists
+  multipath: disabled           # 9 MachineConfig: reboot
+  lldp: enabled                 # 9
+  metallb: disabled             # 10 enable once metallbAddresses is set in site-values.yaml
+  alerting: enabled             # 11 e-mail alerts (SMTP values in common/values.yaml)
+  observability: enabled        # 12 metrics in SVM_OCP_B S3 (acm-metrics-hub-b)
+  image-registry: enabled       # 13 internal image registry on ontap-nas (ReadWriteMany)
+  etcd-backup: enabled          # 14 daily etcd backup CronJob to ontap-nas (not the Tech Preview feature)
+  techpreview-guard: enabled    # 15 inform only: NonCompliant if a Tech Preview feature set is ever enabled
+  routing-via-host: enabled     # 16 pods reach ONTAP S3 on the storage subnet over bond1.222
+  mtv-pvc-naming: enabled       # 19 MTV disk names <vm>-disk-<n> for plans on the hub's MTV (cluster to cluster)
+  log-forwarding: enabled       # 20 infrastructure + audit logs to Corp syslog (TCP 514)
+  etcd-defrag: enabled          # 21 weekly etcd defragmentation when needed (single node: the etcd operator does not do it)

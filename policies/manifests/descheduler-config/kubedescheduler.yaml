@@ -1,0 +1,23 @@
+# Load-aware VM rebalancing: nodes running hot (CPU and memory use, plus PSI) have VM pods evicted, and each eviction
+# becomes a live migration over the live-migration network (VLAN 333).
+# mode per cluster from site values deschedulerMode: "Predictive" only logs what it would evict (default, start here);
+# "Automatic" acts. Check first:  oc logs -n openshift-kube-descheduler-operator deploy/descheduler
+# Exclude a VM: spec.template.metadata.annotations descheduler.alpha.kubernetes.io/prefer-no-eviction: "true" (restart VM).
+apiVersion: operator.openshift.io/v1
+kind: KubeDescheduler
+metadata:
+  name: cluster
+  namespace: openshift-kube-descheduler-operator
+spec:
+  managementState: Managed
+  deschedulingIntervalSeconds: 30
+  mode: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "deschedulerMode" | default "Predictive" hub}}'
+  profiles:
+    - KubeVirtRelieveAndMigrate
+  profileCustomizations:
+    devEnableSoftTainter: true
+    devDeviationThresholds: AsymmetricLow                         # gentlest: only nodes clearly above average shed VMs
+    devActualUtilizationProfile: PrometheusCPUMemoryCombinedProfile
+  evictionLimits:
+    total: 5          # = HyperConverged liveMigrationConfig.parallelMigrationsPerCluster
+    node: 2           # = parallelOutboundMigrationsPerNode

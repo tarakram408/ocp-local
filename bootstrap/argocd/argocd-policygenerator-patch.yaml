@@ -1,0 +1,29 @@
+# One-time merge patch so the hub Argo CD can run the ACM PolicyGenerator kustomize plugin.
+#   oc -n openshift-gitops patch argocd openshift-gitops --type merge --patch-file argocd-policygenerator-patch.yaml
+# The image must be the multicluster-operators-subscription image for YOUR ACM version.
+# Find it with:
+#   oc -n open-cluster-management get deploy multicluster-operators-application -o jsonpath='{..image}'
+spec:
+  kustomizeBuildOptions: --enable-alpha-plugins
+  repo:
+    env:
+      - name: KUSTOMIZE_PLUGIN_HOME
+        value: /etc/kustomize/plugin
+    initContainers:
+      - name: policy-generator-install
+        image: registry.redhat.io/rhacm2/multicluster-operators-subscription-rhel9@sha256:d7641848278a3e3e77b863a56ae9c5753c5211cd0c331441ab93ccf7a47127b0   # paste the image the command above prints
+        command: ["/bin/bash"]
+        args:
+          - -c
+          # Recent ACM docs copy the "-not-fips-compliant" binary because the FIPS build may not run
+          # in the repo-server image. Confirm the binary name against the documentation for the installed ACM release.
+          - cp /policy-generator/PolicyGenerator-not-fips-compliant /policy-generator-tmp/PolicyGenerator
+        volumeMounts:
+          - mountPath: /policy-generator-tmp
+            name: policy-generator
+    volumeMounts:
+      - mountPath: /etc/kustomize/plugin/policy.open-cluster-management.io/v1/policygenerator
+        name: policy-generator
+    volumes:
+      - name: policy-generator
+        emptyDir: {}

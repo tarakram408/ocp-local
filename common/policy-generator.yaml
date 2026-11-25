@@ -1,0 +1,251 @@
+# Day-2 configuration shared by the hubs and the production clusters.
+# Each feature is switched on per cluster with a ManagedCluster label, config.example.com/<feature>: enabled.
+#   ocp-a, ocp-b: extraLabels in clusters/<cluster>/clusterinstance.yaml
+#   hub-a, hub-b: hubs/<hub>/local-cluster-labels.yaml
+# Any other value (for example "disabled") or no label skips the feature on that cluster.
+# Policies whose objects can be removed cleanly (ldap-sync, metallb) delete them when switched off;
+# the others leave the last configuration in place (see common/README.md, "Switching a feature off").
+apiVersion: policy.open-cluster-management.io/v1
+kind: PolicyGenerator
+metadata:
+  name: common-policies
+placementBindingDefaults:
+  name: common-policies
+policySetDefaults:
+  generatePolicySetPlacement: false
+policyDefaults:
+  namespace: policies
+  remediationAction: enforce
+  severity: medium
+  pruneObjectBehavior: None
+  policySets:
+    - common-config
+  generatePlacementWhenInSet: true
+policies:
+  # Hubs only: turns hubs/<hub>/local-cluster-labels.yaml into config.example.com labels on local-cluster
+  - name: common-hub-labels
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: local-cluster, operator: In, values: ["true"] }
+    manifests:
+      - path: manifests/hub-labels/
+  # 1 + 2: identity providers. One policy owns the OAuth list; htpasswd and AD are added to it by label.
+  - name: common-oauth
+    severity: high
+    placement:
+      placementPath: placements/oauth.yaml
+    manifests:
+      - path: manifests/oauth/
+  # 2: AD group sync CronJob; removed again when config.example.com/ad is switched off
+  - name: common-ldap-sync
+    pruneObjectBehavior: DeleteIfCreated
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/ad, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/ldap-sync/
+  # 3
+  - name: common-etcd-encryption
+    severity: high
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/etcd-encryption, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/etcd-encryption/
+  # 4: MachineConfig, nodes reboot one pool at a time
+  - name: common-ntp
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/ntp, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/ntp/
+  # 5
+  - name: common-console
+    severity: low
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/console, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/console/
+  # 6
+  - name: common-namespace-template
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/namespace-template, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/namespace-template/
+  # 7
+  - name: common-rbac
+    severity: high
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/rbac, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/rbac/
+  # 7 (hubs): Argo CD access for the same groups; only the hubs run the openshift-gitops Argo CD
+  - name: common-argocd-rbac
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/rbac, operator: In, values: [enabled] }
+          - { key: local-cluster, operator: In, values: ["true"] }
+    manifests:
+      - path: manifests/argocd-rbac/
+  # Hubs: Argo CD application controller memory (OOMKilled at the 2Gi default on hub-a, 19 Nov)
+  - name: common-argocd-resources
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: local-cluster, operator: In, values: ["true"] }
+    manifests:
+      - path: manifests/argocd-resources/
+  # 8
+  - name: common-ingress-cert
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/ingress-cert, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/ingress-cert/
+  # 9: multipath is a MachineConfig (nodes reboot); LLDP is an NNCP (no reboot)
+  - name: common-multipath
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/multipath, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/multipath/
+  - name: common-lldp
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/lldp, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/lldp/
+  # 10
+  - name: common-metallb-operator
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/metallb, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/metallb-operator/
+  - name: common-metallb-config
+    pruneObjectBehavior: DeleteIfCreated
+    dependencies:
+      - name: common-metallb-operator
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/metallb, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/metallb-config/
+  # 11: Alertmanager e-mail notifications (critical only) to alertEmailTo
+  - name: common-alerting
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/alerting, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/alerting/
+  # 12 (hubs): RHACM MultiClusterObservability; needs the hub's S3 bucket, its secrets and ontap-nas
+  - name: common-observability
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/observability, operator: In, values: [enabled] }
+          - { key: local-cluster, operator: In, values: ["true"] }
+    manifests:
+      - path: manifests/observability/
+  # 13: internal image registry on ontap-nas (ReadWriteMany), Managed
+  - name: common-image-registry
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/image-registry, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/image-registry/
+  # 14: scheduled etcd backup to ontap-nas (CronJob with cluster-backup.sh; not the Tech Preview feature)
+  - name: common-etcd-backup
+    severity: high
+    pruneObjectBehavior: DeleteIfCreated
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/etcd-backup, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/etcd-backup/
+  # 21: weekly etcd defragmentation on single-node clusters (hubs); the etcd operator does it on three-node clusters
+  - name: common-etcd-defrag
+    pruneObjectBehavior: DeleteIfCreated
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/etcd-defrag, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/etcd-defrag/
+  # 15: inform only; NonCompliant if a Technology Preview / Dev Preview / Custom feature set is enabled
+  - name: common-techpreview-guard
+    remediationAction: inform
+    severity: high
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/techpreview-guard, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/techpreview-guard/
+  # 16: pod egress via the host routing table, so pods reach the storage subnet (ONTAP S3) over bond1.222
+  - name: common-routing-via-host
+    severity: high
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/routing-via-host, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/routing-via-host/
+  # 18: read-only service account for the NetApp Data Infrastructure Insights (DII) OpenShift Virtualization collector.
+  # The token is created by hand per cluster (not in git): see manifests/dii-collector/dii-collector.yaml.
+  - name: common-dii-collector
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/dii-collector, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/dii-collector/
+  # 19: MTV PVC name template <vm>-disk-<n> stamped on every new plan in openshift-mtv before it starts, so Trident
+  # names the ONTAP volume <cluster>_<namespace>_<vm>_disk_<n>. On the clusters and hubs where plans are created.
+  - name: common-mtv-pvc-naming
+    severity: low
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/mtv-pvc-naming, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/mtv-pvc-naming/
+  # 20: forward infrastructure and audit logs to Corp syslog (siem-syslog.example.com (10.62.8.57), graylog.example.com, TCP 514, RFC5424)
+  - name: common-log-forwarding-operator
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/log-forwarding, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/log-forwarding-operator/
+  - name: common-log-forwarding
+    dependencies:
+      - name: common-log-forwarding-operator
+    placement:
+      labelSelector:
+        matchExpressions:
+          - { key: config.example.com/log-forwarding, operator: In, values: [enabled] }
+    manifests:
+      - path: manifests/log-forwarding/
+policySets:
+  - name: common-config
+    description: Day-2 configuration shared by the hubs and the production clusters, switched per cluster by config.example.com labels.

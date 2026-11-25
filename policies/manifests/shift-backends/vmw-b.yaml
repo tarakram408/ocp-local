@@ -1,0 +1,52 @@
+# Trident backend on the VMware SVM SVM_VMW_B (Bravo datastores ds_b_0-6), used only by the NetApp Shift Toolkit,
+# same pattern as vmw-c.yaml: Shift clones the datastore volume on ONTAP and Trident imports the clone as the VM's
+# PVC. Every production cluster gets it. Not for general provisioning: anything created on it lands on the VMware SVM.
+# ONTAP (23 Nov): management LIF vmw-b 10.61.250.203; data LIFs brav0-6 (.244 .245 .246 .207 .208 .209 .210);
+# ds_b_0-6 use export policy VMware_Default (10.60.140.0/24); aggregates aggr3e_ssd1/N03f/N03g/aggr3h_ssd1 assigned.
+# ds_b_* volumes: 0,2 on N03e; 1,4,5,6 on N03f; 3 on N03g. Log datastores ds_l_0-2 (LIFs log0-2 .211-.213, export
+# policies ds_l_0-2, 10.60.140.0/24) are on the same SVM and use this backend too.
+# No aggregate is pinned (unlike SVM_VMW_C, which is pinned to N03g): the backend's pools are all four assigned
+# aggregates, so clones of any ds_b_* volume, whichever aggregate it is on, belong to this backend.
+# Data LIF brav1-140 .245 (nas01f), the node that holds four of the seven Bravo volumes.
+# ONTAP account trident_admin (vsadmin, http + ontapi) on SVM_VMW_B, created by the storage team (vsadmin is
+# locked; snapcenter4 belongs to SnapCenter). Hub secret, never in git; create it BEFORE pushing this file:
+#   read -p "SVM_VMW_B user: " U; read -s -p "Password: " P; echo
+#   oc $H -n policies create secret generic ontap-credentials-vmw-b --from-literal=username="$U" --from-literal=password="$P"; unset P
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ontap-credentials-vmw-b
+  namespace: trident
+type: Opaque
+data:
+  username: '{{hub fromSecret "policies" "ontap-credentials-vmw-b" "username" hub}}'
+  password: '{{hub fromSecret "policies" "ontap-credentials-vmw-b" "password" hub}}'
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-vmw-b
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-vmw-b
+  managementLIF: 10.61.250.203      # vmw-b, default-management
+  dataLIF: 10.60.140.245            # brav1-140 on nas01f
+  svm: SVM_VMW_B
+  storagePrefix: '{{hub .ManagedClusterName | replace "-" "_" hub}}'
+  credentials:
+    name: ontap-credentials-vmw-b
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas-vmw-b
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-nas
+  storagePools: "ontap-nas-vmw-b:.*"
+  fsType: nfs
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

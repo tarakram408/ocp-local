@@ -1,0 +1,45 @@
+# VMware source for MTV on the primary cluster (dr-role: primary, ocp-a): the Production vCenter as MTV provider
+# "vcenter01", with the network and storage maps "vcenter01-to-ocp" (networkmap.yaml, storagemap.yaml here).
+# Migration plans stay per wave and by hand (migration/plan-wave-1.yaml, or the console). docs/shift-operator.md.
+#
+# vCenter login: hub secret with the user and password only, never in git (copied here by the policy). Create it
+# once on the hub, e.g. from the working secret on ocp-a:
+#   oc -n policies create secret generic vcenter-credentials-ocp-a \
+#     --from-literal=user="$(oc --kubeconfig ~/ocp-a.kubeconfig get secret vcenter-credentials -n openshift-mtv -o jsonpath='{.data.user}' | base64 -d)" \
+#     --from-literal=password="$(oc --kubeconfig ~/ocp-a.kubeconfig get secret vcenter-credentials -n openshift-mtv -o jsonpath='{.data.password}' | base64 -d)"
+#   oc -n policies label secret vcenter-credentials-ocp-a cluster.open-cluster-management.io/backup=""
+# vCenter certificate trust (public, so in git): cacert below is the chain vCenter presents, base64 of
+# migration/vcenter-chain.pem: vcenter01.example.com (expires 6 Dec 2026), GlobalSign RSA OV SSL CA 2018
+# (2028), GlobalSign Root CA R3 (2029). A renewal by GlobalSign keeps working (MTV trusts the CAs in it); a change of
+# CA needs a new migration/vcenter-chain.pem and: base64 -w0 migration/vcenter-chain.pem > into cacert.
+# vCenter FQDN: site value vcenterFQDN.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vcenter-credentials
+  namespace: openshift-mtv
+  labels:
+    createdForProviderType: vsphere
+    createdForResourceType: providers
+type: Opaque
+data:
+  user: '{{hub fromSecret "policies" (printf "vcenter-credentials-%s" .ManagedClusterName) "user" hub}}'
+  password: '{{hub fromSecret "policies" (printf "vcenter-credentials-%s" .ManagedClusterName) "password" hub}}'
+  insecureSkipVerify: ZmFsc2U=           # "false"
+  cacert: CHANGEME_BASE64_PEM
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Provider
+metadata:
+  name: vcenter01
+  namespace: openshift-mtv
+spec:
+  type: vsphere
+  url: 'https://{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "vcenterFQDN" hub}}/sdk'
+  secret:
+    name: vcenter-credentials
+    namespace: openshift-mtv
+  settings:
+    sdkEndpoint: vcenter
+    # No vddkInitImage here: this provider is for Shift (cold), which converts the disks in place. Warm migrations
+    # use the second provider vcenter01-vddk (provider-vddk.yaml).

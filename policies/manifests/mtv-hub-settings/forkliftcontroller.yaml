@@ -1,0 +1,13 @@
+# Runs on the hub (hub-a). Settings for the MTV that RHACM installs on the hub (MultiClusterHub component
+# cnv-mtv-integrations, add-on mtv-operator). The ForkliftController itself is created by that add-on; this policy only
+# adds the fields below (musthave: every other field the add-on sets is left as it is).
+#   feature_ocp_live_migration: cross-cluster live migration between ocp-a and ocp-b (Live plans). Needs
+#   decentralizedLiveMigration in the HyperConverged on both clusters (virtualization-config) and the shared live
+#   migration network (site values liveMigrationSubnets, VLAN 333 stretched DC1-DC2). docs/vm-migration-between-clusters.md
+apiVersion: forklift.konveyor.io/v1beta1
+kind: ForkliftController
+metadata:
+  name: forklift-controller
+  namespace: openshift-mtv
+spec:
+  feature_ocp_live_migration: "true"

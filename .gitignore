@@ -1,0 +1,12 @@
+**/secrets.yaml
+bootstrap/secrets/*.yaml
+migration/provider-secret.yaml
+*.kubeconfig
+auth/
+bootstrap/*/hub-storage/*-secret.yaml
+common/hub-secrets.yaml
+*.htpasswd
+hub/observability/thanos-object-storage.yaml
+# private keys and certificates generated on the bastion (e.g. the Shift TLS certificate)
+*.key
+server.cert

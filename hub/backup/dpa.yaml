@@ -1,0 +1,42 @@
+# Hub backup storage, the same on both hubs: one S3 bucket on the DC2 SVM SVM_OCP_B, so the backups survive the
+# loss of DC1 where hub-a runs. hub-a writes to it (hubs/hub-a/backup-schedule.yaml); hub-b reads it
+# (hubs/hub-b/restore.yaml). The S3 keys are not in git: create the secret by hand on each hub first:
+#   oc create secret generic cloud-credentials -n open-cluster-management-backup --from-file=cloud=<file>
+#   (file content: [default] / aws_access_key_id=... / aws_secret_access_key=...)
+# The namespace and the OADP operator are created by the MultiClusterHub (cluster-backup component).
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: dpa-hub
+  namespace: open-cluster-management-backup
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  configuration:
+    velero:
+      defaultPlugins: [openshift, aws]
+      podConfig:
+        env:                                    # ONTAP S3 rejects the AWS SDK streaming checksum header
+          - name: AWS_REQUEST_CHECKSUM_CALCULATION
+            value: when_required
+          - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+            value: when_required
+  backupLocations:
+    - name: hub-backup
+      velero:
+        provider: aws
+        default: true
+        credential:
+          name: cloud-credentials
+          key: cloud
+        objectStorage:
+          bucket: acm-backup-acm                # CHANGEME if the storage team names it differently
+          prefix: hub
+          caCert: CHANGEME_BASE64_PEM   # SVM_SYSMGR_CA (SVM_OCP_B root CA, expires 21 Oct 2028): required, Velero rejects the S3 certificate without it
+        config:
+          region: us-east-1                     # required by the AWS plugin, ignored by ONTAP S3
+          s3Url: https://s3-site-b.example.com   # SVM_OCP_B S3 (DC2), LIFs .77/.78
+          s3ForcePathStyle: "true"
+          checksumAlgorithm: ""                 # with the env above: plain UNSIGNED-PAYLOAD, which ONTAP accepts
+          profile: default

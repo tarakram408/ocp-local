@@ -1,0 +1,47 @@
+# Chrony on every node, pointing at the organization's NTP servers. The ClusterInstance (additionalNTPSources)
+# and the Assisted Installer already set these at install; this keeps them enforced afterwards.
+# MachineConfig: the Machine Config Operator reboots each pool one node at a time.
+# Decoded file content:
+#   # Managed by the common-ntp policy (ocp-local)
+#   server clock1.example.com iburst
+#   server clock2.example.com iburst
+#   server clock3.example.com iburst
+#   driftfile /var/lib/chrony/drift
+#   makestep 1.0 3
+#   rtcsync
+#   logdir /var/log/chrony
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-master-chrony
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/chrony.conf
+          mode: 420                   # 0644
+          overwrite: true
+          contents:
+            source: data:text/plain;charset=utf-8;base64,IyBNYW5hZ2VkIGJ5IHRoZSBjb21tb24tbnRwIHBvbGljeSAoeWFsZS1vY3AtZ2l0b3BzKQpzZXJ2ZXIgY2xvY2sxLm5ldC55YWxlLmVkdSBpYnVyc3QKc2VydmVyIGNsb2NrMi5uZXQueWFsZS5lZHUgaWJ1cnN0CnNlcnZlciBjbG9jazMubmV0LnlhbGUuZWR1IGlidXJzdApkcmlmdGZpbGUgL3Zhci9saWIvY2hyb255L2RyaWZ0Cm1ha2VzdGVwIDEuMCAzCnJ0Y3N5bmMKbG9nZGlyIC92YXIvbG9nL2Nocm9ueQo=
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-worker-chrony
+  labels:
+    machineconfiguration.openshift.io/role: worker
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/chrony.conf
+          mode: 420                   # 0644
+          overwrite: true
+          contents:
+            source: data:text/plain;charset=utf-8;base64,IyBNYW5hZ2VkIGJ5IHRoZSBjb21tb24tbnRwIHBvbGljeSAoeWFsZS1vY3AtZ2l0b3BzKQpzZXJ2ZXIgY2xvY2sxLm5ldC55YWxlLmVkdSBpYnVyc3QKc2VydmVyIGNsb2NrMi5uZXQueWFsZS5lZHUgaWJ1cnN0CnNlcnZlciBjbG9jazMubmV0LnlhbGUuZWR1IGlidXJzdApkcmlmdGZpbGUgL3Zhci9saWIvY2hyb255L2RyaWZ0Cm1ha2VzdGVwIDEuMCAzCnJ0Y3N5bmMKbG9nZGlyIC92YXIvbG9nL2Nocm9ueQo=

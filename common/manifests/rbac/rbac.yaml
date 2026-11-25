@@ -1,0 +1,103 @@
+# Who can do what, by AD group (synced by common-ldap-sync) plus the local break-glass admin.
+# Each role takes a comma-separated list of group names from common-values (groupPlatformAdmins,
+# groupPlatformReaders, groupVmAdmins). A binding to a group that does not exist yet is harmless.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-rbac
+spec:
+  remediationAction: enforce
+  severity: high
+  object-templates-raw: |
+    {{hub $admins := split "," (fromConfigMap "policies" "common-values" "groupPlatformAdmins") hub}}
+    {{hub $readers := split "," (fromConfigMap "policies" "common-values" "groupPlatformReaders") hub}}
+    {{hub $vm := split "," (fromConfigMap "policies" "common-values" "groupVmAdmins") hub}}
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: platform-admins
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        {{hub range $admins hub}}
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{hub trim . hub}}'
+        {{hub end hub}}
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: platform-readers
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-reader
+        subjects:
+        {{hub range $readers hub}}
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{hub trim . hub}}'
+        {{hub end hub}}
+    # Read-only for everyone who logs in (any identity provider), when readOnlyForAllUsers is "true".
+    # system:authenticated:oauth = every user that logged in through OAuth; service accounts are not included.
+    - complianceType: {{hub if eq (fromConfigMap "policies" "common-values" "readOnlyForAllUsers") "true" hub}}musthave{{hub else hub}}mustnothave{{hub end hub}}
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: corp-all-users-read
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-reader
+        subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: system:authenticated:oauth
+    # VM administration in every namespace (kubevirt.io:admin is the built-in VM admin role)
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: vm-admins
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: kubevirt.io:admin
+        subjects:
+        {{hub range $vm hub}}
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{hub trim . hub}}'
+        {{hub end hub}}
+    # The htpasswd admin is the break-glass account: cluster-admin, and in the group that the
+    # gitops-guardrails and namespace-prefix admission policies let through.
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: user.openshift.io/v1
+        kind: Group
+        metadata:
+          name: break-glass
+        users:
+          - '{{hub fromConfigMap "policies" "common-values" "htpasswdAdminUser" hub}}'
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: corp-break-glass
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: break-glass

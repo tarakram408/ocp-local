@@ -1,0 +1,63 @@
+# ocp-a: production, primary site (DC1).
+# Installed through the Assisted Installer on console.redhat.com (4 Nov 2026), then imported into the hub from git,
+# the same way as ocp-b: Argo CD creates this ManagedCluster, the import controller finishes the import once the
+# auto-import-secret exists in the ocp-a namespace (created by hand; never in git, see docs/ocp-b-build.md).
+# The labels drive every Placement: env=prod + cluster set prod bind the policies in policies/ (dr-role=primary adds
+# MTV, the Shift account and site-primary), the config.example.com/* switches bind the common/ day-2 configuration.
+# clusterinstance.yaml (not listed in kustomization.yaml) stays for a later hub-driven rebuild.
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: ocp-a
+  labels:
+    cluster.open-cluster-management.io/clusterset: prod
+    env: prod
+    dr-role: primary
+    site: dc1
+    # Set here because a cluster imported from YAML gets no auto-detect (the console import adds it). The observability
+    # add-on and other vendor-filtered add-ons select vendor=OpenShift. Fixed values, not auto-detect: ACM would rewrite
+    # auto-detect and Argo would revert it.
+    vendor: OpenShift
+    cloud: Other
+    # Switches for the common/ day-2 configuration: "enabled" installs, anything else skips.
+    config.example.com/htpasswd: enabled           # 1 local break-glass admin
+    config.example.com/ad: enabled                 # 2 AD login + group sync (LDAP details in common/values.yaml)
+    config.example.com/etcd-encryption: enabled    # 3
+    config.example.com/ntp: enabled                # 4 MachineConfig: rolling reboot
+    config.example.com/console: enabled            # 5 logo, product name, banner
+    config.example.com/namespace-template: enabled # 6
+    config.example.com/rbac: enabled               # 7
+    config.example.com/ingress-cert: disabled      # 8 enable once the hub secret <cluster>-ingress-cert exists
+    config.example.com/multipath: disabled         # 9 no SAN LUNs (step 22 skipped on ocp-a)
+    config.example.com/lldp: enabled               # 9
+    config.example.com/metallb: disabled           # 10 enable once metallbAddresses is set in site values
+    config.example.com/alerting: enabled           # 11 e-mail alerts
+    config.example.com/image-registry: enabled     # 13 image registry on ontap-nas
+    config.example.com/etcd-backup: enabled        # 14 daily etcd backup CronJob
+    config.example.com/techpreview-guard: enabled  # 15 inform only
+    config.example.com/routing-via-host: enabled   # 16 pods reach the storage subnet over bond1 (br-storage)
+    config.example.com/mtv-provider: enabled       # 17 MTV provider on the hub: VM migration between clusters
+    config.example.com/dii-collector: enabled      # 18 NetApp DII read-only service account (token created by hand)
+    config.example.com/mtv-pvc-naming: enabled      # 19 MTV disk names <vm>-disk-<n> (MTV plans run here)
+    config.example.com/log-forwarding: enabled      # 20 infrastructure + audit logs to Corp syslog (TCP 514)
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  hubAcceptsClient: true
+---
+apiVersion: agent.open-cluster-management.io/v1
+kind: KlusterletAddonConfig
+metadata:
+  name: ocp-a
+  namespace: ocp-a
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  applicationManager:
+    enabled: true
+  certPolicyController:
+    enabled: true
+  policyController:
+    enabled: true
+  searchCollector:
+    enabled: true

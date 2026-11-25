@@ -1,0 +1,67 @@
+# Template OpenShift uses for every new project (oc new-project, or the console's Create Project).
+# It gives the requester admin on the project and labels it. Quotas and network policies are left
+# commented: VMs need large quotas, and default-deny network policies affect VMs on the pod network.
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: project-request
+  namespace: openshift-config
+objects:
+  - apiVersion: project.openshift.io/v1
+    kind: Project
+    metadata:
+      name: ${PROJECT_NAME}
+      annotations:
+        openshift.io/description: ${PROJECT_DESCRIPTION}
+        openshift.io/display-name: ${PROJECT_DISPLAYNAME}
+        openshift.io/requester: ${PROJECT_REQUESTING_USER}
+      labels:
+        example.com/managed-by: project-template
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: admin
+      namespace: ${PROJECT_NAME}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: admin
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: User
+        name: ${PROJECT_ADMIN_USER}
+  # - apiVersion: v1
+  #   kind: ResourceQuota
+  #   metadata:
+  #     name: default-quota
+  #     namespace: ${PROJECT_NAME}
+  #   spec:
+  #     hard:
+  #       requests.cpu: "64"
+  #       requests.memory: 256Gi
+  #       persistentvolumeclaims: "50"
+  # - apiVersion: networking.k8s.io/v1
+  #   kind: NetworkPolicy
+  #   metadata:
+  #     name: allow-same-namespace
+  #     namespace: ${PROJECT_NAME}
+  #   spec:
+  #     podSelector: {}
+  #     ingress:
+  #       - from:
+  #           - podSelector: {}
+parameters:
+  - name: PROJECT_NAME
+  - name: PROJECT_DISPLAYNAME
+  - name: PROJECT_DESCRIPTION
+  - name: PROJECT_ADMIN_USER
+  - name: PROJECT_REQUESTING_USER
+---
+apiVersion: config.openshift.io/v1
+kind: Project
+metadata:
+  name: cluster
+spec:
+  projectRequestTemplate:
+    name: project-request
+  projectRequestMessage: '{{hub printf "Project names must start with %s. Ask the platform team, or request it through git." (fromConfigMap "policies" "common-values" "namespacePrefix") hub}}'

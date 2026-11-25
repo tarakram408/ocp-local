@@ -1,0 +1,24 @@
+# hub-b only: passive restore of the hub-a backups (hub/backup/README.md).
+# Failover: set veleroManagedClustersBackupName to "latest" and push (Argo CD self-heals, so do not patch it by hand).
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm-passive-sync
+  namespace: open-cluster-management-backup
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  syncRestoreWithNewBackups: true
+  restoreSyncInterval: 10m
+  cleanupBeforeRestore: CleanupRestored
+  veleroManagedClustersBackupName: skip    # FAILOVER: latest
+  veleroCredentialsBackupName: latest
+  veleroResourcesBackupName: latest
+  # Each hub's Argo CD apps come from its own root app (argocd-apps*/). The velero.io/exclude-from-backup label on
+  # them was not honoured: the first passive restore brought hub-a's clusters/policies apps and ApplicationSets
+  # onto hub-b. Exclude them here so a restore never makes the passive hub manage production.
+  excludedResources:
+    - applications.argoproj.io
+    - applicationsets.argoproj.io
+    - appprojects.argoproj.io

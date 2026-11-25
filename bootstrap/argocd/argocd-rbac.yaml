@@ -1,0 +1,14 @@
+# Lets the hub Argo CD create ACM, SiteConfig, Hive and metal3 resources.
+# cluster-admin is the simple starting point on a dedicated hub; tighten to a scoped ClusterRole later.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshift-gitops-hub-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops

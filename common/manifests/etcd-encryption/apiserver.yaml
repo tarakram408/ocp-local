@@ -1,0 +1,11 @@
+# Encrypts secrets, ConfigMaps, routes, OAuth tokens and the other sensitive resources in etcd.
+# The first run re-encrypts existing data; watch "oc get openshiftapiserver -o=jsonpath='{range
+# .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}'" until it says EncryptionCompleted.
+# Switching the label off does NOT decrypt: set type to identity here first if that is ever needed.
+apiVersion: config.openshift.io/v1
+kind: APIServer
+metadata:
+  name: cluster
+spec:
+  encryption:
+    type: aesgcm

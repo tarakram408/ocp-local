@@ -1,0 +1,17 @@
+# The older per-namespace form of a localnet VLAN attachment.
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: vlan-100
+  namespace: vm-workloads
+spec:
+  config: |
+    {
+      "cniVersion": "0.4.0",
+      "name": "vm-trunk",
+      "type": "ovn-k8s-cni-overlay",
+      "topology": "localnet",
+      "netAttachDefName": "vm-workloads/vlan-100",
+      "vlanID": 100,
+      "mtu": 9000
+    }

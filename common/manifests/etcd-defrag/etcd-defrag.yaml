@@ -1,0 +1,110 @@
+# 21: weekly etcd defragmentation on single-node clusters (the hubs). On clusters with three control plane
+# nodes the etcd operator defragments by itself; on a single node it does not, so the etcd database file keeps
+# the space of deleted and updated objects and the alert etcdDatabaseHighFragmentationRatio fires (RCA HUB-16).
+# The CronJob defragments only when it is needed, with the same thresholds as the etcd operator:
+# database file at least 100 MiB and less than 55% of it in use. FORCE=true defragments regardless.
+# It refuses to run on a cluster with more than one etcd member (those are left to the operator).
+# The API pauses for a few seconds while etcd defragments. The schedule (values.yaml) is after the daily
+# etcd backup (switch 14), so a fresh backup exists before every run.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: etcd-defrag
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: etcd-defrag
+  namespace: etcd-defrag
+---
+# The job runs privileged on the host (chroot) and uses crictl to run etcdctl inside the etcd pod's
+# etcdctl container, which already holds the client certificates
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: etcd-defrag-privileged
+  namespace: etcd-defrag
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - kind: ServiceAccount
+    name: etcd-defrag
+    namespace: etcd-defrag
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-defrag
+  namespace: etcd-defrag
+spec:
+  schedule: '{{hub fromConfigMap "policies" "common-values" "etcdDefragSchedule" hub}}'
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          serviceAccountName: etcd-defrag
+          restartPolicy: Never
+          hostNetwork: true
+          hostPID: true
+          nodeSelector:
+            node-role.kubernetes.io/master: ""
+          tolerations:
+            - operator: Exists
+          containers:
+            - name: defrag
+              image: registry.redhat.io/ubi9/ubi:latest
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              env:
+                - name: FORCE
+                  value: "false"
+                - name: MIN_SIZE_MIB
+                  value: "100"
+                - name: MAX_IN_USE_PCT
+                  value: "55"
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  CID="$(chroot /host crictl ps --name '^etcdctl$' --state running -q | head -1)"
+                  [ -n "${CID}" ] || { echo "etcdctl container of the etcd pod not found on this node"; exit 1; }
+                  e() { chroot /host crictl exec "${CID}" sh -c "$1"; }
+                  status() {
+                    S="$(e 'unset ETCDCTL_ENDPOINTS; etcdctl --endpoints=https://localhost:2379 endpoint status -w json')"
+                    SIZE="$(echo "${S}" | grep -o '"dbSize":[0-9]*' | cut -d: -f2)"
+                    INUSE="$(echo "${S}" | grep -o '"dbSizeInUse":[0-9]*' | cut -d: -f2)"
+                    PCT=$(( INUSE * 100 / SIZE ))
+                    echo "$1: database $(( SIZE / 1048576 )) MiB, in use $(( INUSE / 1048576 )) MiB (${PCT}%)"
+                  }
+                  MEMBERS="$(e 'etcdctl member list' | grep -c started || true)"
+                  [ "${MEMBERS}" -ge 1 ] || { echo "could not read the etcd member list"; exit 1; }
+                  if [ "${MEMBERS}" -ne 1 ]; then
+                    echo "${MEMBERS} etcd members: the etcd operator defragments this cluster itself, nothing to do"; exit 0
+                  fi
+                  status before
+                  if [ "${FORCE}" != "true" ] && { [ "${SIZE}" -lt $(( MIN_SIZE_MIB * 1048576 )) ] || [ "${PCT}" -ge "${MAX_IN_USE_PCT}" ]; }; then
+                    echo "below the threshold (${MIN_SIZE_MIB} MiB and under ${MAX_IN_USE_PCT}% in use), not defragmenting"; exit 0
+                  fi
+                  echo "defragmenting (the API pauses for a few seconds)"
+                  e 'unset ETCDCTL_ENDPOINTS; etcdctl --command-timeout=60s --endpoints=https://localhost:2379 defrag'
+                  status after
+                  ALARMS="$(e 'etcdctl alarm list')"
+                  if [ -n "${ALARMS}" ]; then
+                    echo "etcd alarms after defragmentation: ${ALARMS}"
+                    if echo "${ALARMS}" | grep -q NOSPACE; then e 'etcdctl alarm disarm'; echo "NOSPACE alarm cleared"; fi
+                  fi
+                  echo "etcd defragmentation done"

@@ -1,0 +1,50 @@
+# Clusters join this set through the "cluster.open-cluster-management.io/clusterset: prod" label
+# in their ClusterInstance. A namespace can only place work on a set that is bound to it.
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSet
+metadata:
+  name: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  clusterSelector:
+    selectorType: ExclusiveClusterSetLabel
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: policies
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: prod
+  namespace: policies
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  clusterSet: prod
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: prod
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  clusterSet: prod
+---
+# The hub itself (local-cluster) sits in the built-in "default" cluster set. Binding it here lets
+# hub-only policies, such as install-secrets, be placed on the hub.
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: default
+  namespace: policies
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  clusterSet: default

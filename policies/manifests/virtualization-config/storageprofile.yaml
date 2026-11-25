@@ -1,0 +1,51 @@
+# NetApp guidance for OpenShift Virtualization on Trident: RWX, Filesystem, and CSI cloning so VM
+# disks clone on ONTAP instead of being copied. StorageProfiles are cluster-scoped and named after
+# their StorageClass; CDI creates this one once OpenShift Virtualization is installed.
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  name: ontap-nas
+spec:
+  claimPropertySets:
+    - accessModes:
+        - ReadWriteMany
+      volumeMode: Filesystem
+  cloneStrategy: csi-clone
+---
+# Same for the Charlie StorageClass (policy shift-backends): VMs brought in by Shift keep their disks there until they
+# are moved to ontap-nas, and without access mode / volume mode in its profile their DataVolumes have no access mode
+# (live migration between the clusters then fails at PrepareTarget, 16 Nov).
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  name: ontap-nas-vmw-c
+spec:
+  claimPropertySets:
+    - accessModes:
+        - ReadWriteMany
+      volumeMode: Filesystem
+  cloneStrategy: csi-clone
+---
+# Same for the Bravo StorageClass (policy shift-backends, 23 Nov).
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  name: ontap-nas-vmw-b
+spec:
+  claimPropertySets:
+    - accessModes:
+        - ReadWriteMany
+      volumeMode: Filesystem
+  cloneStrategy: csi-clone
+---
+# Same for the Alpha StorageClass (policy shift-backends, 23 Nov).
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  name: ontap-nas-vmw-a
+spec:
+  claimPropertySets:
+    - accessModes:
+        - ReadWriteMany
+      volumeMode: Filesystem
+  cloneStrategy: csi-clone

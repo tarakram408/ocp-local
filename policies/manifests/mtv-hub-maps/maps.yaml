@@ -1,0 +1,174 @@
+# Runs on the hub. Ready-made maps for migrating VMs between ocp-a and ocp-b with the hub's MTV, so a plan only
+# needs the VMs picked: Migration > Plans > Create plan, choose the source and target providers and these maps.
+# Network: the 49 VM networks have the same NAD names on both clusters (policies/manifests/vm-networks/), so each maps
+# to itself; regenerate this file when a NAD is added there. Storage: everything lands on ontap-nas (Trident, the
+# cluster's own SVM). ontap-nas-vmw-c, -vmw-b and -vmw-a exist on both clusters for Shift only; a VM on them
+# moves to ontap-nas.
+# MTV copies the disks over the network, so the source and target StorageClasses do not need to match.
+# accessMode/volumeMode are set explicitly: for live migrations MTV builds the target PVCs from the source DataVolume,
+# whose access mode is empty when it relies on the source StorageProfile (16 Nov: "spec.accessModes: at least 1 access
+# mode is required" for a VM on ontap-nas-vmw-c).
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: ocp-a-to-ocp-b
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ocp-a
+      namespace: openshift-mtv
+    destination:
+      name: ocp-b
+      namespace: openshift-mtv
+  map:
+  - source:
+      type: pod
+    destination:
+      type: pod
+  - source:
+      name: vm-vlan101
+      namespace: default
+      type: multus
+    destination:
+      name: vm-vlan101
+      namespace: default
+      type: multus
+  - source:
+      name: vm-vlan102
+      namespace: default
+      type: multus
+    destination:
+      name: vm-vlan102
+      namespace: default
+      type: multus
+  - source:
+      name: vm-storage-vlan555
+      namespace: default
+      type: multus
+    destination:
+      name: vm-storage-vlan555
+      namespace: default
+      type: multus
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: ocp-b-to-ocp-a
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ocp-b
+      namespace: openshift-mtv
+    destination:
+      name: ocp-a
+      namespace: openshift-mtv
+  map:
+  - source:
+      type: pod
+    destination:
+      type: pod
+  - source:
+      name: vm-vlan101
+      namespace: default
+      type: multus
+    destination:
+      name: vm-vlan101
+      namespace: default
+      type: multus
+  - source:
+      name: vm-vlan102
+      namespace: default
+      type: multus
+    destination:
+      name: vm-vlan102
+      namespace: default
+      type: multus
+  - source:
+      name: vm-storage-vlan555
+      namespace: default
+      type: multus
+    destination:
+      name: vm-storage-vlan555
+      namespace: default
+      type: multus
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: ocp-a-to-ocp-b
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ocp-a
+      namespace: openshift-mtv
+    destination:
+      name: ocp-b
+      namespace: openshift-mtv
+  map:
+  - source:
+      name: ontap-nas
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-c
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-b
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-a
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: ocp-b-to-ocp-a
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ocp-b
+      namespace: openshift-mtv
+    destination:
+      name: ocp-a
+      namespace: openshift-mtv
+  map:
+  - source:
+      name: ontap-nas
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-c
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-b
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem
+  - source:
+      name: ontap-nas-vmw-a
+    destination:
+      storageClass: ontap-nas
+      accessMode: ReadWriteMany
+      volumeMode: Filesystem

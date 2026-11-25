@@ -1,0 +1,22 @@
+flowchart LR
+  dev["Engineer<br/>edits YAML on the bastion"] -->|git push| git[("github.com<br/>CHANGEME/ocp-local<br/>branch main")]
+  subgraph HUB["hub-a (main RHACM hub, DC1)"]
+    root["Argo CD app <b>root</b><br/>path argocd-apps/"]
+    hc["hub-config<br/>hubs/hub-a"]
+    cl["clusters<br/>clusters/"]
+    po["policies<br/>policies/ (PolicyGenerator)"]
+    cc["common-config<br/>common/ (PolicyGenerator)"]
+    tp["ApplicationSet<br/>trident-protect (Helm)"]
+    acm["RHACM governance<br/>Policies + Placements"]
+  end
+  git -->|poll every 3 min| root
+  root --> hc & cl & po & cc & tp
+  hc -->|MultiClusterHub, backup,<br/>KubeletConfig, MTV integration| HUBSELF["the hub itself<br/>(local-cluster)"]
+  cl -->|ManagedCluster +<br/>KlusterletAddonConfig| acm
+  po --> acm
+  cc --> acm
+  acm -->|enforce| WC["ocp-a<br/>DC1 primary"]
+  acm -->|enforce| C1["ocp-b<br/>DC2 failover"]
+  tp -->|Argo CD push| WC & C1
+  WC -.->|status| acm
+  C1 -.->|status| acm

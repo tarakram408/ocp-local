@@ -1,0 +1,11 @@
+# Marks the Charlie StorageClass (created by the shift-backends policy) for Shift: PVCs that MTV creates on it are
+# handed to the Shift listener instead of provisioned empty. The backend UUID differs per cluster and per backend
+# re-creation, so it is read from the cluster's TridentBackendConfig (managed-cluster template, resolved on ocp-a).
+# musthave: only these annotations are added; the StorageClass itself stays as shift-backends defines it.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas-vmw-c
+  annotations:
+    shift.netapp.io/storage-class-type: shift
+    shift.netapp.io/trident-backend-uuid: '{{ (lookup "trident.netapp.io/v1" "TridentBackendConfig" "trident" "ontap-nas-vmw-c").status.backendInfo.backendUUID }}'

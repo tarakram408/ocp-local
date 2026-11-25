@@ -1,0 +1,15 @@
+# cluster-admin for the service account ACM creates for the hub's MTV provider (ManagedServiceAccount mtv-provider,
+# policies/manifests/mtv-hub-providers/). MTV needs it to read VMs and disks on the source cluster and create them
+# on the target. Remove this policy (and mtv-hub-providers) to revoke the hub's migration access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mtv-provider-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: mtv-provider
+    namespace: open-cluster-management-agent-addon

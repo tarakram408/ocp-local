@@ -1,0 +1,28 @@
+# Kube Descheduler Operator: load-aware rebalancing of VMs (KubeVirtRelieveAndMigrate profile, see descheduler-config).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-kube-descheduler-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"     # descheduler metrics
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-kube-descheduler-operator
+  namespace: openshift-kube-descheduler-operator
+spec:
+  targetNamespaces:
+    - openshift-kube-descheduler-operator
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-kube-descheduler-operator
+  namespace: openshift-kube-descheduler-operator
+spec:
+  channel: stable
+  name: cluster-kube-descheduler-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

@@ -1,0 +1,21 @@
+# The namespace must carry this label from creation; it cannot be added later.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-a
+  labels:
+    k8s.ovn.org/primary-user-defined-network: ""
+---
+apiVersion: k8s.ovn.org/v1
+kind: UserDefinedNetwork
+metadata:
+  name: tenant-a
+  namespace: tenant-a
+spec:
+  topology: Layer2
+  layer2:
+    role: Primary
+    subnets:
+      - 10.63.0.0/24                    # CHANGEME
+    ipam:
+      lifecycle: Persistent              # a VM keeps its address across live migration and restart

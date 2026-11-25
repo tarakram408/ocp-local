@@ -1,0 +1,89 @@
+# Runs on the hub (hub-a). Keeps the two production clusters trusting each other's KubeVirt CA, which cross-cluster
+# live migration needs: the synchronization controllers and virt-handlers of ocp-a and ocp-b talk TLS with
+# certificates from their own cluster's CA (ConfigMap openshift-cnv/kubevirt-ca). KubeVirt rotates that CA every couple
+# of days, so a one-off copy lapses; this CronJob copies each cluster's current kubevirt-ca bundle into the other
+# cluster's openshift-cnv/kubevirt-external-ca every 6 hours (KubeVirt then merges it into kubevirt-ca and empties
+# kubevirt-external-ca again). Without it, live migrations between the clusters fail once the copied CA has expired.
+#
+# Credentials: none in git. It reuses, read-only, the secrets the mtv-hub-providers policy keeps for MTV
+# (openshift-mtv/<cluster>-mtv-provider: rotating ManagedServiceAccount token + CA; cluster-admin on the cluster through
+# the mtv-provider-access policy) and the Provider URLs. Clusters taken: every Provider of type openshift except "host".
+# Run it now:   oc create job -n openshift-mtv --from=cronjob/kubevirt-ca-exchange kubevirt-ca-exchange-manual
+# Check:        oc logs -n openshift-mtv job/kubevirt-ca-exchange-manual
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubevirt-ca-exchange
+  namespace: openshift-mtv
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubevirt-ca-exchange
+  namespace: openshift-mtv
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+  - apiGroups: [forklift.konveyor.io]
+    resources: [providers]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubevirt-ca-exchange
+  namespace: openshift-mtv
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubevirt-ca-exchange
+subjects:
+  - kind: ServiceAccount
+    name: kubevirt-ca-exchange
+    namespace: openshift-mtv
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubevirt-ca-exchange
+  namespace: openshift-mtv
+spec:
+  schedule: "17 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: kubevirt-ca-exchange
+          restartPolicy: Never
+          containers:
+            - name: exchange
+              image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22   # oc; pulled with the cluster pull secret
+              command: [/bin/bash, -c]
+              args:
+                - |
+                  set -euo pipefail
+                  cd /tmp
+                  CL=$(oc get providers.forklift.konveyor.io -n openshift-mtv -o jsonpath='{range .items[?(@.spec.type=="openshift")]}{.metadata.name}{" "}{end}' | tr ' ' '\n' | grep -vx host | grep -v '^$')
+                  for c in $CL; do
+                    url=$(oc get providers.forklift.konveyor.io "$c" -n openshift-mtv -o jsonpath='{.spec.url}')
+                    oc get secret "$c-mtv-provider" -n openshift-mtv -o jsonpath='{.data.token}' | base64 -d > "$c.token"
+                    oc get secret "$c-mtv-provider" -n openshift-mtv -o jsonpath='{.data.cacert}' | base64 -d > "$c.ca"
+                    printf '%s' "$url" > "$c.url"
+                    oc --server="$url" --token="$(cat "$c.token")" --certificate-authority="$c.ca" \
+                      get cm kubevirt-ca -n openshift-cnv -o jsonpath='{.data.ca-bundle}' > "$c.bundle"
+                    echo "$c: $(grep -c 'BEGIN CERTIFICATE' "$c.bundle") certificate(s) in kubevirt-ca"
+                  done
+                  for dst in $CL; do
+                    : > other.bundle
+                    for src in $CL; do [ "$src" = "$dst" ] || cat "$src.bundle" >> other.bundle; done
+                    oc create cm kubevirt-external-ca -n openshift-cnv --from-file=ca-bundle=other.bundle --dry-run=client -o yaml \
+                      | oc --server="$(cat "$dst.url")" --token="$(cat "$dst.token")" --certificate-authority="$dst.ca" apply -f -
+                    echo "$dst: kubevirt-external-ca updated with $(grep -c 'BEGIN CERTIFICATE' other.bundle) certificate(s) from the other cluster(s)"
+                  done
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}

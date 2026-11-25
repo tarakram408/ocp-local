@@ -1,0 +1,13 @@
+# hub-a only: the active hub writes the hub backups (hub/backup/README.md).
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: BackupSchedule
+metadata:
+  name: schedule-acm
+  namespace: open-cluster-management-backup
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  veleroSchedule: "0 */2 * * *"     # every 2 hours
+  veleroTtl: 120h                   # keep 5 days
+  useManagedServiceAccount: true    # managed clusters reconnect to a restored hub without a manual import

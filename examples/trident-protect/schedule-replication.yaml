@@ -1,0 +1,13 @@
+apiVersion: protect.trident.netapp.io/v1
+kind: Schedule
+metadata:
+  name: replication
+  namespace: vm-workloads
+spec:
+  appVaultRef: ontap-s3-vault
+  applicationRef: vm-workloads
+  backupRetention: "0"
+  snapshotRetention: "2"
+  enabled: true
+  granularity: Custom
+  recurrenceRule: "DTSTART:20260101T000200Z\nRRULE:FREQ=MINUTELY;INTERVAL=15"   # CHANGEME: the agreed RPO

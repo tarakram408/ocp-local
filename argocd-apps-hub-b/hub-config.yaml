@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hub-config
+  namespace: openshift-gitops
+  labels:
+    velero.io/exclude-from-backup: "true"       # each hub\'s apps come from its own folder; never restored onto the other hub
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CHANGEME/ocp-local.git
+    targetRevision: main
+    path: hubs/hub-b
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true     # CRDs arrive as the MultiClusterHub comes up
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m

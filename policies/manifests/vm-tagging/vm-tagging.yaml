@@ -1,0 +1,97 @@
+# Required Corp tags on every new VirtualMachine: the same tags the Production vCenter requires (storage team, 19 Nov).
+#
+#   vSphere tag                OpenShift key                              kept as     allowed values
+#   Environment                example.com/environment                       label       sbx, dev, tst, prd
+#   SupportLevel               example.com/support-level                     label       24x7, 9x5, Unmanaged
+#   DRTier                     example.com/dr-tier                           label       1, 2, 3
+#   OS                         example.com/os                                label       Windows, Linux (others allowed)
+#   Application                example.com/application                       annotation  free text
+#   ChargingAccount            example.com/charging-account                  annotation  free text (CO01…XX000000.CC0001.PG00001.PJ000001…)
+#   CreatedBy                  example.com/created-by                        annotation  free text
+#   OwnerDepartment            example.com/owner-department                  annotation  free text
+#   OwnerDepartmentContact     example.com/owner-department-contact          annotation  free text (e-mail)
+#   SupportDepartment          example.com/support-department                annotation  free text
+#   SupportDepartmentContact   example.com/support-department-contact        annotation  free text (e-mail)
+#
+# Labels for the short, fixed values (searchable: oc get vm -l example.com/environment=prd), annotations for free text
+# (spaces, @ and long values are not allowed in label values).
+#
+# Checked when a VM is CREATED (console, template, YAML, oc). Not checked:
+#   - VMs created by MTV (openshift-mtv, and the hub MTV provider account): migrated VMs are tagged afterwards with
+#     scripts/tag-vm.sh; the policy vm-tagging-report lists every VM still missing tags
+#   - OpenShift Virtualization itself (openshift-cnv: clones, restores), openshift-* namespaces
+#   - namespaces labelled example.com/vm-tags=exempt
+# Warn or Deny per cluster: site value vmTagEnforcement (Warn = VM is created with a warning, Deny = VM is refused).
+# Allowed values: change the lists below (validations 2-4) and push. docs/vm-tagging.md.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: vm-tags
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [kubevirt.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [virtualmachines]
+    namespaceSelector:                     # NotIn also matches namespaces without the label
+      matchExpressions:
+        - key: example.com/vm-tags
+          operator: NotIn
+          values: [exempt]
+  matchConditions:
+    - name: not-platform-namespace
+      expression: "!request.namespace.startsWith('openshift')"
+    - name: not-migration-or-platform-account
+      expression: >-
+        !request.userInfo.username.startsWith('system:serviceaccount:openshift-mtv:') &&
+        !request.userInfo.username.startsWith('system:serviceaccount:openshift-cnv:') &&
+        request.userInfo.username != 'system:serviceaccount:open-cluster-management-agent-addon:mtv-provider'
+  variables:
+    - name: labels
+      expression: "has(object.metadata.labels) ? object.metadata.labels : {}"
+    - name: annotations
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+    - name: missingLabels
+      expression: >-
+        ['example.com/environment', 'example.com/support-level', 'example.com/dr-tier', 'example.com/os']
+        .filter(k, !(k in variables.labels) || variables.labels[k] == '')
+    - name: missingAnnotations
+      expression: >-
+        ['example.com/application', 'example.com/charging-account', 'example.com/created-by', 'example.com/owner-department',
+         'example.com/owner-department-contact', 'example.com/support-department', 'example.com/support-department-contact']
+        .filter(k, !(k in variables.annotations) || variables.annotations[k].trim() == '')
+  validations:
+    # 1: every tag present
+    - expression: "size(variables.missingLabels) == 0 && size(variables.missingAnnotations) == 0"
+      messageExpression: >-
+        'VM ' + object.metadata.name + ' is missing required Corp tags: ' +
+        (variables.missingLabels + variables.missingAnnotations).join(', ') +
+        '. Use a Corp template (Catalog) or add them in the YAML; see docs/vm-tagging.md in ocp-local.'
+      reason: Invalid
+    # 2-4: fixed value lists
+    - expression: >-
+        !('example.com/environment' in variables.labels) || variables.labels['example.com/environment'] == '' ||
+        variables.labels['example.com/environment'] in ['sbx', 'dev', 'tst', 'prd']
+      messageExpression: "'example.com/environment must be one of sbx, dev, tst, prd (got ' + variables.labels['example.com/environment'] + ')'"
+      reason: Invalid
+    - expression: >-
+        !('example.com/support-level' in variables.labels) || variables.labels['example.com/support-level'] == '' ||
+        variables.labels['example.com/support-level'] in ['24x7', '9x5', 'Unmanaged']
+      messageExpression: "'example.com/support-level must be one of 24x7, 9x5, Unmanaged (got ' + variables.labels['example.com/support-level'] + ')'"
+      reason: Invalid
+    - expression: >-
+        !('example.com/dr-tier' in variables.labels) || variables.labels['example.com/dr-tier'] == '' ||
+        variables.labels['example.com/dr-tier'] in ['1', '2', '3']
+      messageExpression: "'example.com/dr-tier must be one of 1, 2, 3 (got ' + variables.labels['example.com/dr-tier'] + ')'"
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: vm-tags
+spec:
+  policyName: vm-tags
+  # Warn: the VM is created and the user sees the message. Deny: the VM is refused. Audit: recorded in the API audit log.
+  validationActions: ['{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "vmTagEnforcement" | default "Warn" hub}}', Audit]

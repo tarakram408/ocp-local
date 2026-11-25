@@ -1,0 +1,9 @@
+# VM namespaces are declared in git and exist on BOTH clusters, because a Trident Protect
+# replication target namespace must exist before the relationship is created.
+# The label is what a ClusterUserDefinedNetwork selects on (see examples/vm-networks/).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vm-workloads                 # CHANGEME: one per application or tenant
+  labels:
+    vm-network/vlan-100: "true"      # CHANGEME

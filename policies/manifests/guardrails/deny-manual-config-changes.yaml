@@ -1,0 +1,33 @@
+# Rejects hand edits to cluster configuration. Service accounts and operators (system:*) pass,
+# as does anyone in the "break-glass" group. Note the installer kubeconfig user is system:admin,
+# so it also passes: lock that kubeconfig away, it is the real break-glass.
+#
+# Ships in Warn+Audit so nothing breaks on day one. After a clean week of audit logs,
+# change validationActions to [Deny] in the binding below.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: gitops-only-cluster-config
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["config.openshift.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["*"]
+      - apiGroups: ["machineconfiguration.openshift.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["machineconfigs", "kubeletconfigs", "containerruntimeconfigs", "machineconfigpools"]
+  validations:
+    - expression: "request.userInfo.username.startsWith('system:') || ('break-glass' in request.userInfo.groups)"
+      message: "Cluster configuration is managed from git. Open a merge request, or use the break-glass procedure."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: gitops-only-cluster-config
+spec:
+  policyName: gitops-only-cluster-config
+  validationActions: [Warn, Audit]

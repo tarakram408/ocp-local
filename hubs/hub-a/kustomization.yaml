@@ -1,0 +1,23 @@
+# hub-a: the shared hub configuration in hub/ plus what is specific to this hub.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../hub
+  - storage-network.yaml
+  - site-values.yaml
+  - local-cluster-labels.yaml
+  - backup-schedule.yaml
+# Active hub only: cnv-mtv-integrations (MTV on the hub, used for VM migration between ocp-a and ocp-b through the
+# policies mtv-hub-providers and mtv-hub-maps). It also installs OpenShift Virtualization on the hub. hub-b, the
+# standby, leaves it off; enable it there during a hub failover (hub/backup/README.md, Failover).
+patches:
+  - target:
+      kind: MultiClusterHub
+      name: multiclusterhub
+    patch: |-
+      - op: test                       # fails the build if the entry moves in hub/acm/multiclusterhub.yaml
+        path: /spec/overrides/components/2/name
+        value: cnv-mtv-integrations
+      - op: replace
+        path: /spec/overrides/components/2/enabled
+        value: true

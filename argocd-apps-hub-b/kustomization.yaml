@@ -1,0 +1,16 @@
+# hub-b (standby hub). While hub-a is the active hub, hub-b runs only its own hub configuration
+# and the common/ day-2 configuration for itself, and follows hub-a's hub backups (runbook 7.4). It must never build or manage ocp-a and ocp-b
+# at the same time as hub-a.
+#
+# On takeover (hub-a lost, restore activated on hub-b), uncomment the Applications below and push.
+# Confirm the clusters Application in a DR test first: the restored hub must own the ClusterInstances
+# before Argo CD applies them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - hub-config.yaml
+  - common-config.yaml          # common/ day-2 configuration; on hub-b it applies to hub-b itself
+  # - policies.yaml
+  # - trident-protect-appset.yaml
+  # - workloads-appset.yaml
+  # - clusters.yaml

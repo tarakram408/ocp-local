@@ -1,0 +1,8 @@
+# Placeholder for config that differs by site (for example GTM health-check targets or DR operator roles).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: site-role
+  namespace: openshift-config
+data:
+  dr-role: primary

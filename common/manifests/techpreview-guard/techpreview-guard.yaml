@@ -1,0 +1,32 @@
+# 15: inform only. The cluster must stay on the default (supported) feature set. TechPreviewNoUpgrade,
+# DevPreviewNoUpgrade and CustomNoUpgrade cannot be reverted and block minor-version upgrades.
+# Reads the FeatureGate on the managed cluster (managed-cluster template, no "hub" keyword):
+#  - preview feature set: reports the FeatureGate as a violation (NonCompliant)
+#  - default feature set: checks only that openshift-config exists (always true), so the policy is Compliant
+# A plain mustnothave on the FeatureGate named "cluster" cannot work: that object exists on every cluster.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-techpreview-guard
+spec:
+  remediationAction: inform
+  severity: high
+  object-templates-raw: |
+    {{- $fg := lookup "config.openshift.io/v1" "FeatureGate" "" "cluster" }}
+    {{- $fs := "" }}
+    {{- if $fg.spec }}{{- $fs = $fg.spec.featureSet | default "" }}{{- end }}
+    {{- if has $fs (list "TechPreviewNoUpgrade" "DevPreviewNoUpgrade" "CustomNoUpgrade") }}
+    - complianceType: mustnothave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: FeatureGate
+        metadata:
+          name: cluster
+    {{- else }}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: openshift-config
+    {{- end }}

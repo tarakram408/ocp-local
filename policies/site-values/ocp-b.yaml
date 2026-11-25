@@ -1,0 +1,32 @@
+# Values that differ for ocp-b. Policies look these up by cluster name, so the manifests stay identical.
+# Must be in the "policies" namespace: hub templates can only read from the policy's own namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ocp-b-site-values
+  namespace: policies
+data:
+  # DC2 SVM SVM_OCP_B, shared with the hub-b hub (which uses prefix hub_b). ocp-b volumes are named ocp_b_<namespace>_<pvc>
+  # (storagePrefix from the cluster name in trident-config), so the two never mix on the SVM.
+  ontapManagementLIF: "10.61.250.126"           # svm-ocp-b, SVM management LIF on nas0204e
+  ontapSVM: "SVM_OCP_B"
+  ontapDataLIF: "10.60.140.77"                # svm-b_lif1 on nas0204e (backend ontap-nas-lif1)
+  ontapAggregate: "N04e_6tb_SSD_1"             # nas0204e data aggregate, as on the hub-b hub; CHANGEME if ocp-b gets its own
+  ontapDataLIF2: "10.60.140.78"               # svm-b_lif2 on nas0204f (backend ontap-nas-lif2)
+  ontapAggregate2: "N04f_6tb_SSD_1"            # nas0204f data aggregate
+  ontapExportPolicy: "SVM_Default"             # rw + superuser for 10.60.140.0/24; the SVM "default" policy is read-only (rwrule never)
+  # live migration (VLAN 333): a pod-assigned pool (whereabouts), not one address per node.
+  # Subnet shared with ocp-a (10.60.160.0/25), see ocp-a.yaml. Usable here: .26-.35 (IPAM block reserved by Corp on
+  # 17 Nov, DNS site-b-pool-01..10-vm.example.com): 10 (6 nodes + 2 synchronization controllers + 2 spare).
+  liveMigrationSubnets: "10.60.160.0/25"
+  liveMigrationExclude: "10.60.160.0/28,10.60.160.16/29,10.60.160.24/31,10.60.160.36/30,10.60.160.40/29,10.60.160.48/28,10.60.160.64/26"
+  # common/ day-2 configuration (used only where the matching config.example.com label is enabled)
+  deschedulerMode: "Predictive"                 # descheduler: Predictive logs only; "Automatic" rebalances VMs
+  consoleProductName: "Corp OCP-B"                # browser tab title (common console policy)
+  bannerText: "PRODUCTION - ocp-b (failover) - changes are made through git only"
+  bannerColor: "#ffffff"
+  bannerBackground: "#a30000"
+  metallbAddresses: "172.28.55.CHANGEME-172.28.55.CHANGEME"   # CHANGEME: free range on the management VLAN, if MetalLB is enabled
+  alertClusterName: "ocp-b"                         # shown in the alert e-mail subject
+  alertEmailFrom: "openshift-ocp-b-alert@example.com"          # CHANGEME if the mail team assigns a different sender
+  vmTagEnforcement: "Warn"                     # Corp VM tags on new VMs: Warn (created, with a warning) or Deny (refused). docs/vm-tagging.md

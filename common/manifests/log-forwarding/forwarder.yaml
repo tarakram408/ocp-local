@@ -1,0 +1,112 @@
+# Switch 20 (log-forwarding): send the platform's infrastructure and audit logs to the organization's syslog servers, the same two
+# that vCenter forwards to: siem-syslog.example.com (10.62.8.57) and graylog.example.com, TCP 514, RFC5424. Application (workload pod)
+# logs are not sent. The collector (Vector) runs as a DaemonSet on every node; it buffers and retries if a server is
+# unreachable. Firewall: every node -> both servers on TCP 514.
+# The service account needs the collect-* cluster roles BEFORE the forwarder names those log types, or the operator
+# removes the collector DaemonSet: the bindings are in this file, and the policy is applied in order.
+# Messages carry APP-NAME ocp-<cluster>-<type>-<source> (below), so the servers can filter by cluster and type.
+# Check: oc -n openshift-logging get clusterlogforwarder collector -o jsonpath='{.status.conditions}' ; oc -n openshift-logging get ds collector
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logcollector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: logcollector-collect-infrastructure-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-infrastructure-logs
+subjects:
+  - kind: ServiceAccount
+    name: logcollector
+    namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: logcollector-collect-audit-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-audit-logs
+subjects:
+  - kind: ServiceAccount
+    name: logcollector
+    namespace: openshift-logging
+---
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: collector
+  namespace: openshift-logging
+spec:
+  managementState: Managed
+  serviceAccount:
+    name: logcollector
+  # Collector resources (25 Nov, RCA HUB-15). Every node has 112 logical CPUs. Without a CPU limit the collector
+  # starts one worker thread per CPU, and memory grows with the thread count: collectors were OOMKilled at 4Gi on
+  # control-plane and worker nodes alike within a minute of start (alert CollectorNodeDown). The CPU limit caps the
+  # threads; deliveryMode AtLeastOnce on every output keeps unsent data on disk. With 4 CPUs the process settles at about
+  # 3.3-3.5 GiB while the backlog drains (09:46 reading on ocp-a), so the limit is 6Gi for headroom.
+  # Check: oc -n openshift-logging adm top pod -l app.kubernetes.io/component=collector
+  collector:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "4"
+        memory: 6Gi
+  # APP-NAME = ocp-<cluster>-<type>-<source>, e.g. ocp-ocp-a-infra-container, ocp-ocp-a-infra-node, ocp-ocp-a-audit-kubeAPI,
+  # ocp-hub-b-audit-openshiftAPI, ocp-ocp-a-audit-auditd, ocp-ocp-a-audit-ovn. <cluster> is alertClusterName from the cluster's
+  # site values; <source> is the record's log_source. One output per server and type, so the type is fixed text.
+  outputs:
+    - name: infra-infra
+      type: syslog
+      syslog:
+        url: tcp://siem-syslog.example.com:514
+        rfc: RFC5424
+        tuning:
+          deliveryMode: AtLeastOnce   # disk buffer + end-to-end acknowledgements: the collector reads only as fast as the server accepts (HUB-15)
+        appName: 'ocp-{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "alertClusterName" hub}}-infra-{.log_source||"none"}'
+    - name: infra-audit
+      type: syslog
+      syslog:
+        url: tcp://siem-syslog.example.com:514
+        rfc: RFC5424
+        tuning:
+          deliveryMode: AtLeastOnce   # disk buffer + end-to-end acknowledgements: the collector reads only as fast as the server accepts (HUB-15)
+        appName: 'ocp-{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "alertClusterName" hub}}-audit-{.log_source||"none"}'
+    - name: graylog-infra
+      type: syslog
+      syslog:
+        url: tcp://graylog.example.com:514
+        rfc: RFC5424
+        tuning:
+          deliveryMode: AtLeastOnce   # disk buffer + end-to-end acknowledgements: the collector reads only as fast as the server accepts (HUB-15)
+        appName: 'ocp-{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "alertClusterName" hub}}-infra-{.log_source||"none"}'
+    - name: graylog-audit
+      type: syslog
+      syslog:
+        url: tcp://graylog.example.com:514
+        rfc: RFC5424
+        tuning:
+          deliveryMode: AtLeastOnce   # disk buffer + end-to-end acknowledgements: the collector reads only as fast as the server accepts (HUB-15)
+        appName: 'ocp-{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "alertClusterName" hub}}-audit-{.log_source||"none"}'
+  pipelines:
+    - name: infra-to-syslog
+      inputRefs:
+        - infrastructure
+      outputRefs:
+        - infra-infra
+        - graylog-infra
+    - name: audit-to-syslog
+      inputRefs:
+        - audit
+      outputRefs:
+        - infra-audit
+        - graylog-audit

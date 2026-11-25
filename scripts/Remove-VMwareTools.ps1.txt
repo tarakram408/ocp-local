@@ -1,0 +1,143 @@
+# Saved as .txt so the repository can be sent by e-mail (Gmail blocks .ps1). On the VM: Rename-Item Remove-VMwareTools.ps1.txt Remove-VMwareTools.ps1
+<#
+.SYNOPSIS
+    Removes VMware Tools completely from a Windows VM that has been migrated to OpenShift Virtualization.
+
+.DESCRIPTION
+    1. Tries the normal MSI uninstall (silent, no reboot).
+    2. Whether or not that works (on a non-VMware hypervisor the VMware Tools installer often refuses to run),
+       stops and deletes the VMware services and drivers, removes the VMware registry keys (including the
+       Windows Installer product registration, so "VMware Tools" disappears from Programs and Features)
+       and deletes the VMware program folders.
+    Run in an elevated PowerShell on the migrated VM, after the VM has been validated on OpenShift and the
+    virtio drivers / QEMU guest agent are installed. Reboot afterwards.
+
+    Take a VM snapshot on OpenShift first (console: VM > Snapshots > Take snapshot).
+
+.PARAMETER WhatIf
+    Shows what would be removed without changing anything.
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\Remove-VMwareTools.ps1 -WhatIf
+    powershell -ExecutionPolicy Bypass -File .\Remove-VMwareTools.ps1
+#>
+[CmdletBinding(SupportsShouldProcess = $true)]
+param()
+
+$ErrorActionPreference = 'Continue'
+$log = Join-Path $env:SystemDrive ("Remove-VMwareTools-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
+function Log([string]$m) { $line = "{0:HH:mm:ss}  {1}" -f (Get-Date), $m; Write-Host $line; Add-Content -Path $log -Value $line }
+
+# --- must run elevated -------------------------------------------------------------------------------------------
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+          [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $admin) { Write-Error "Run this script in an elevated PowerShell (Run as administrator)."; exit 1 }
+Log "VMware Tools removal started on $env:COMPUTERNAME (WhatIf: $($WhatIfPreference)). Log: $log"
+
+# --- safety: do not run on a VM that is still on VMware ------------------------------------------------------------
+$maker = (Get-CimInstance Win32_ComputerSystem).Manufacturer
+if ($maker -match 'VMware') {
+    Write-Error "This VM still runs on VMware (manufacturer '$maker'). Run it only after the migration."; exit 1
+}
+Log "Platform: $maker"
+
+# --- 1. regular MSI uninstall ---------------------------------------------------------------------------------------
+$uninstallRoots = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+                    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+$entries = foreach ($r in $uninstallRoots) {
+    Get-ChildItem $r -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like 'VMware Tools*' } |
+        Select-Object @{n='Key';e={$_.PSPath}}, DisplayName, DisplayVersion, PSChildName
+}
+foreach ($e in $entries) {
+    Log "Found '$($e.DisplayName)' $($e.DisplayVersion) ($($e.PSChildName))"
+    if ($e.PSChildName -match '^\{[0-9A-F-]+\}$') {
+        if ($PSCmdlet.ShouldProcess($e.DisplayName, "msiexec /x $($e.PSChildName)")) {
+            $p = Start-Process msiexec.exe -ArgumentList "/x $($e.PSChildName) /qn /norestart REBOOT=ReallySuppress" -Wait -PassThru
+            Log "msiexec exit code $($p.ExitCode) (0 or 3010 = removed; anything else is cleaned up below)"
+        }
+    }
+}
+
+# --- 2. services and drivers ----------------------------------------------------------------------------------------
+# User-mode services first, then kernel drivers. Only VMware drivers that have no function under KubeVirt.
+$services = 'VMTools','VGAuthService','vmvss','VMwareCAFManagementAgentHost','VMwareCAFCommAmqpListener',
+            'vm3dservice','VMUSBArbService','vmtoolsd'
+$drivers  = 'vmci','vsock','vmmouse','vmusbmouse','vm3dmp','vm3dmp_loader','vm3dmp-debug','vm3dmp-stats',
+            'vmhgfs','VMMemCtl','vmrawdsk','vmxnet3ndis6','vmxnet','vnetWFP','pvscsi','vmStatsProvider',
+            'vmGuestLib','vmci_tx'
+foreach ($s in $services + $drivers) {
+    $svc = Get-Service -Name $s -ErrorAction SilentlyContinue
+    if (-not $svc -and -not (Test-Path "HKLM:\SYSTEM\CurrentControlSet\Services\$s")) { continue }
+    if ($PSCmdlet.ShouldProcess($s, 'stop and delete service/driver')) {
+        if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name $s -Force -ErrorAction SilentlyContinue }
+        & sc.exe config $s start= disabled | Out-Null
+        & sc.exe delete $s | Out-Null
+        Remove-Item "HKLM:\SYSTEM\CurrentControlSet\Services\$s" -Recurse -Force -ErrorAction SilentlyContinue
+        Log "Removed service/driver $s"
+    }
+}
+
+# Driver packages in the driver store (oem*.inf from VMware)
+$pnp = & pnputil.exe /enum-drivers 2>$null
+$current = $null
+foreach ($line in $pnp) {
+    if ($line -match 'Published Name\s*:\s*(oem\d+\.inf)') { $current = $Matches[1] }
+    elseif ($current -and $line -match '(Provider Name|Original Name)\s*:\s*.*VMware') {
+        if ($PSCmdlet.ShouldProcess($current, 'pnputil /delete-driver /uninstall /force')) {
+            & pnputil.exe /delete-driver $current /uninstall /force | Out-Null
+            Log "Removed driver package $current"
+        }
+        $current = $null
+    }
+}
+
+# --- 3. registry ----------------------------------------------------------------------------------------------------
+$regKeys = @('HKLM:\SOFTWARE\VMware, Inc.', 'HKLM:\SOFTWARE\WOW6432Node\VMware, Inc.')
+foreach ($e in $entries) { $regKeys += $e.Key }
+# Windows Installer registration (Products / UpgradeCodes) for VMware Tools
+foreach ($root in 'HKLM:\SOFTWARE\Classes\Installer\Products', 'HKCR:\Installer\Products') {
+    if ($root -like 'HKCR:*' -and -not (Get-PSDrive HKCR -ErrorAction SilentlyContinue)) {
+        New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT | Out-Null }
+    Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+        if ((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ProductName -like 'VMware Tools*') { $regKeys += $_.PSPath }
+    }
+}
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products' -ErrorAction SilentlyContinue |
+    ForEach-Object {
+        $ip = Join-Path $_.PSPath 'InstallProperties'
+        if ((Get-ItemProperty $ip -ErrorAction SilentlyContinue).DisplayName -like 'VMware Tools*') { $regKeys += $_.PSPath }
+    }
+# Run keys that start the VMware tray (vmtoolsd -n vmusr)
+foreach ($run in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') {
+    $props = Get-ItemProperty $run -ErrorAction SilentlyContinue
+    if ($props) { $props.PSObject.Properties | Where-Object { $_.Value -is [string] -and $_.Value -match 'VMware' } | ForEach-Object {
+        if ($PSCmdlet.ShouldProcess("$run\$($_.Name)", 'remove Run entry')) {
+            Remove-ItemProperty -Path $run -Name $_.Name -ErrorAction SilentlyContinue; Log "Removed Run entry $($_.Name)" } } }
+}
+foreach ($k in ($regKeys | Select-Object -Unique)) {
+    if (Test-Path $k) {
+        if ($PSCmdlet.ShouldProcess($k, 'remove registry key')) {
+            Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue; Log "Removed registry key $k" }
+    }
+}
+
+# --- 4. folders -----------------------------------------------------------------------------------------------------
+$folders = @("$env:ProgramFiles\VMware\VMware Tools", "${env:ProgramFiles(x86)}\VMware\VMware Tools",
+             "$env:ProgramData\VMware\VMware Tools", "$env:ProgramData\VMware\VMware CAF",
+             "$env:ProgramData\VMware\VMware VGAuth", "$env:CommonProgramFiles\VMware")
+foreach ($f in $folders) {
+    if ($f -and (Test-Path $f)) {
+        if ($PSCmdlet.ShouldProcess($f, 'delete folder')) {
+            Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $f) { Log "Could not delete $f now (files in use): delete it after the reboot" } else { Log "Deleted $f" }
+        }
+    }
+}
+foreach ($parent in "$env:ProgramFiles\VMware", "$env:ProgramData\VMware") {
+    if ((Test-Path $parent) -and -not (Get-ChildItem $parent -Force -ErrorAction SilentlyContinue)) {
+        if ($PSCmdlet.ShouldProcess($parent, 'delete empty folder')) { Remove-Item $parent -Force -ErrorAction SilentlyContinue; Log "Deleted empty $parent" } }
+}
+
+Log "Done. Reboot the VM, then check: Programs and Features has no 'VMware Tools'; Get-Service *vm* shows no VMware services;"
+Log "Device Manager (View > Show hidden devices) has no VMware devices left (remove any greyed-out ones by hand)."

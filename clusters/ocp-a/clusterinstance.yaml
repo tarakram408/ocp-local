@@ -1,0 +1,801 @@
+# ocp-a: production, primary site.
+# NOT USED: ocp-a is installed through the Assisted Installer on console.redhat.com and imported with
+# managedcluster.yaml. Kept for a later hub-driven rebuild (then list it in kustomization.yaml).
+# Committing this file builds the cluster. Removing it (plus a manual prune sync) tears the cluster down.
+# The pull secret and BMC secret it references are copied into the "ocp-a" namespace by the
+# install-secrets policy, from the cluster-install-secrets namespace on the hub.
+apiVersion: siteconfig.open-cluster-management.io/v1alpha1
+kind: ClusterInstance
+metadata:
+  name: ocp-a
+  namespace: ocp-a
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  clusterName: ocp-a
+  baseDomain: example.com
+  clusterImageSetNameRef: img4.22.20-x86-64      # must match hub/acm/clusterimageset-4.22.yaml
+  pullSecretRef:
+    name: assisted-deployment-pull-secret
+  sshPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJjc6q0OHIWlU6CeOHA3521riT4OZZ323dml8XD6ECcQ admin@example.com"
+  platformType: BareMetal
+  networkType: OVNKubernetes
+  # installConfigOverrides: '{"fips": true}'     # uncomment for FIPS mode
+  apiVIPs:
+    - 10.64.55.90                                # api / api-int.ocp-a.example.com (DNS Final)
+  ingressVIPs:
+    - 10.64.55.88                                # *.apps.ocp-a.example.com (.89 was in use at install on 4 Nov; DNS moved to .88)
+  machineNetwork:
+    - cidr: 10.64.55.0/24                     # mgmt VLAN 24
+  clusterNetwork:
+    - cidr: 10.128.0.0/14
+      hostPrefix: 23
+  serviceNetwork:
+    - cidr: 172.30.0.0/16
+  additionalNTPSources:
+    - clock1.example.com
+    - clock2.example.com
+    - clock3.example.com
+  extraLabels:
+    ManagedCluster:                              # these labels drive every Placement
+      cluster.open-cluster-management.io/clusterset: prod
+      env: prod
+      dr-role: primary
+      site: dc1
+      # Switches for the common/ day-2 configuration: "enabled" installs, anything else skips.
+      config.example.com/htpasswd: enabled           # 1 local break-glass admin
+      config.example.com/ad: enabled                 # 2 AD login + group sync (LDAP details in common/values.yaml)
+      config.example.com/etcd-encryption: enabled    # 3
+      config.example.com/ntp: enabled                # 4 MachineConfig: rolling reboot
+      config.example.com/console: enabled            # 5 logo, product name, banner
+      config.example.com/namespace-template: enabled # 6
+      config.example.com/rbac: enabled               # 7
+      config.example.com/ingress-cert: disabled      # 8 enable once the hub secret <cluster>-ingress-cert exists
+      config.example.com/multipath: enabled          # 9 MachineConfig: rolling reboot
+      config.example.com/lldp: enabled               # 9
+      config.example.com/metallb: disabled           # 10 enable once metallbAddresses is set in site values
+      config.example.com/alerting: enabled           # 11 e-mail alerts
+      config.example.com/image-registry: enabled     # 13 image registry on ontap-nas
+      config.example.com/etcd-backup: enabled        # 14 daily etcd backup CronJob
+      config.example.com/techpreview-guard: enabled  # 15 inform only
+      config.example.com/routing-via-host: enabled   # 16 pods reach ONTAP S3 over bond1.222
+      config.example.com/mtv-provider: enabled       # 17 MTV provider on the hub: VM migration between clusters
+      config.example.com/dii-collector: enabled      # 18 NetApp DII read-only service account (token created by hand)
+      config.example.com/mtv-pvc-naming: enabled      # 19 MTV disk names <vm>-disk-<n> (MTV plans run here)
+      config.example.com/log-forwarding: enabled      # 20 infrastructure + audit logs to Corp syslog (TCP 514)
+  templateRefs:
+    - name: ai-cluster-templates-v1              # default assisted-installer templates shipped with ACM
+      namespace: open-cluster-management
+  nodes:
+    - hostName: ocp-a-cp01.ocp-a.example.com
+      role: master
+      bmcAddress: redfish-virtualmedia://10.64.55.200/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-3-8)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:29"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:29"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:2a"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.173                # ocp-a-cp01 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-cp02.ocp-a.example.com
+      role: master
+      bmcAddress: redfish-virtualmedia://10.64.55.116/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-4-1)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:2b"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:2b"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:2c"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.174                # ocp-a-cp02 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-cp03.ocp-a.example.com
+      role: master
+      bmcAddress: redfish-virtualmedia://10.64.55.226/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-4-2)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:2d"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:2d"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:2e"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.175                # ocp-a-cp03 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn01.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.220/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-4-8)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:2f"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:2f"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:30"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.181                # ocp-a-wn01 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn02.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.202/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-5-1)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:31"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:31"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:32"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.182                # ocp-a-wn02 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn03.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.210/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-5-7)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:33"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:33"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:34"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.188                # ocp-a-wn03 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn04.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.111/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-5-8)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:35"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:35"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:36"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.189                # ocp-a-wn04 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn05.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.203/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-6-4)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:37"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:37"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:38"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.193                # ocp-a-wn05 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn06.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.223/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-6-5)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:39"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:39"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:3a"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.194                # ocp-a-wn06 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn07.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.214/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-6-6)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:3b"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:3b"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:3c"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.195                # ocp-a-wn07 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn08.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.201/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-6-7)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:3d"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:3d"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:3e"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.196                # ocp-a-wn08 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management
+    - hostName: ocp-a-wn09.ocp-a.example.com
+      role: worker
+      bmcAddress: redfish-virtualmedia://10.64.55.121/redfish/v1/Systems/SERIAL0000   # confirmed 28 Oct: Redfish system ID = serial, login via OCP-Redfish profile (ucs-fi-6-8)
+      bmcCredentialsName:
+        name: ocp-a-bmc-secret
+      bootMACAddress: "02:00:00:00:00:3f"                    # vmnic0, MGMT_FI-A
+      bootMode: UEFI
+      automatedCleaningMode: metadata            # wipe disk metadata on deprovision so a redeploy starts clean
+      rootDeviceHints:
+        deviceName: /dev/disk/by-path/pci-0000:04:00.0-ata-1.0   # 240 GB boot drive, confirmed on all 12 blades 30 Oct (sdX names shift with KVM virtual drives)
+      nodeNetwork:
+        interfaces:                              # management only at install; storage, VM and live-migration bonds come by policy
+          - name: ens5f0                         # MGMT_FI-A, fabric A (PCI function 0)
+            macAddress: "02:00:00:00:00:3f"                 # vmnic0, MGMT_FI-A (= bootMACAddress)
+          - name: ens5f1                         # MGMT_FI-B, fabric B (PCI function 1)
+            macAddress: "02:00:00:00:00:40"                 # vmnic1, MGMT_FI-B
+        config:
+          interfaces:
+            - name: bond0
+              type: bond
+              state: up
+              mtu: 1500
+              ipv4:
+                enabled: false
+              ipv6:
+                enabled: false
+              link-aggregation:
+                mode: active-backup              # UCS Fabric Interconnects in end-host mode: no LACP
+                options:
+                  miimon: "100"
+                port:
+                  - ens5f0
+                  - ens5f1
+            - name: bond0.24                     # management VLAN 24 (if VLAN 24 is native on the vNICs, put the address on bond0 and drop this)
+              type: vlan
+              state: up
+              mtu: 1500
+              vlan:
+                base-iface: bond0
+                id: 24
+              ipv4:
+                enabled: true
+                dhcp: false
+                address:
+                  - ip: 10.64.55.197                # ocp-a-wn09 (host sheet)
+                    prefix-length: 24
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - 10.60.190.12                  # Corp DNS (same as the hubs)
+                - 10.60.190.20
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: 10.64.55.1    # VLAN 24 gateway (host sheet)
+                next-hop-interface: bond0.24
+      templateRefs:
+        - name: ai-node-templates-v1
+          namespace: open-cluster-management

@@ -1,0 +1,8 @@
+flowchart LR
+  vc["vCenter vcenter01<br/>VM on an NFS datastore:<br/>Charlie · Bravo · Alpha"] --> plan["MTV plan on ocp-a<br/>storage map → Shift class<br/>of the datastore's SVM<br/>network map → same-name NAD<br/>Cold, Power on"]
+  plan -->|"PVC annotated<br/>forklift.konveyor.io/netapp-shift"| lis["shift-toolkit-listener"]
+  lis -->|"HTTPS :3704<br/>(service-CA cert)"| sh["shift-toolkit"]
+  sh -->|"ONTAP: clone VMDK in place<br/>(no copy over the network)"| ontap[("Datastore SVM<br/>SVM_VMW_C · SVM_VMW_B<br/>SVM_VMW_A")]
+  ontap -->|Trident import| pvc["PVC on ontap-nas-vmw-*"]
+  pvc --> conv["MTV: create the VM<br/>and power it on"]
+  conv --> after["After validation:<br/>remove VMware Tools · clone split ·<br/>storage live migration → ontap-nas (SVM-DR)"]

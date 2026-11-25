@@ -1,0 +1,10 @@
+# Shows per-cluster values without a per-cluster file: the hub fills in this cluster's own labels.
+apiVersion: console.openshift.io/v1
+kind: ConsoleNotification
+metadata:
+  name: cluster-identity
+spec:
+  location: BannerTop
+  text: 'PRODUCTION - {{hub .ManagedClusterName hub}} ({{hub index .ManagedClusterLabels "dr-role" hub}}) - changes are made through git only'
+  color: '#ffffff'
+  backgroundColor: '#a30000'

@@ -1,0 +1,24 @@
+# Day-2 configuration shared by the hubs and the production clusters (common/), as ACM policies.
+# Each feature is switched per cluster by config.example.com labels; see common/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: common-config
+  namespace: openshift-gitops
+  labels:
+    velero.io/exclude-from-backup: "true"       # each hub\'s apps come from its own folder; never restored onto the other hub
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CHANGEME/ocp-local.git
+    targetRevision: main
+    path: common
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: policies
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,24 @@
+# NetApp Shift operator (Shift toolkit 1.0 inside OpenShift, used by MTV 2.12+ with Trident 26.06+), on the primary
+# cluster only (dr-role: primary, ocp-a): VMware VMs on the Charlie NFS datastores are converted in place (clone on
+# SVM_VMW_C) when an MTV plan maps them to the StorageClass ontap-nas-vmw-c.
+# Full steps: docs/shift-operator.md
+# https://docs.netapp.com/us-en/netapp-solutions-virtualization/migration/shift-toolkit-deploy-operator.html
+#
+# This folder holds:
+#   00-namespace.yaml          namespace "shift"
+#   05-credentials.yaml        Shift admin login, from the hub secret shift-credentials-<cluster>
+#   10-storageclass-shift.yaml Shift annotations on ontap-nas-vmw-c (backend UUID read from the cluster)
+#   20-filedb-pvc.yaml         } from the NetApp installer (deploy/filedb-pvc.yaml, deploy/logs-pvc.yaml with
+#   21-logs-pvc.yaml           } storageClassName ontap-nas; deploy/bundle.yaml unchanged: SCC, service accounts,
+#   30-shift-bundle.yaml       } RBAC, deployments shift-toolkit and shift-toolkit-listener, images :2.0.0 on quay.io)
+#   40-tls.yaml                TLS from OpenShift's service CA (no certificate or key by hand or in git)
+#
+# Nothing by hand on ocp-a: the admin login comes from the hub secret shift-credentials-<cluster> (05-credentials.yaml),
+# TLS from OpenShift's service CA (40-tls.yaml).
+# Check: oc get pods -n shift   ->  shift-toolkit-<hash>, shift-toolkit-listener-<hash> Running
+# After each migration: split the clone (ONTAP 9.17.1+) or vol move, then storage live migration to ontap-nas
+# (SVM_OCP_A), which is covered by SVM-DR (SVM_OCP_A -> SVM_OCP_A_SM); SVM_VMW_C is not replicated.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shift

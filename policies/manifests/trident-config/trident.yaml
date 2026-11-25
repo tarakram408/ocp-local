@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trident
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentOrchestrator
+metadata:
+  name: trident
+spec:
+  namespace: trident
+  debug: false
+---
+# ONTAP credentials are copied from the hub at policy time, never stored in git.
+# Source: Secret "ontap-credentials-<cluster>" in the "policies" namespace on the hub.
+# No "| protect": a hub-template fromSecret value is already encrypted for the managed cluster; protecting it again
+# left the encrypted text in the Secret ("illegal base64 data at input byte 0", ocp-b, 10 Nov). Same form as the
+# htpasswd and ldap-bind secrets in common/.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ontap-credentials
+  namespace: trident
+type: Opaque
+data:
+  username: '{{hub fromSecret "policies" (printf "ontap-credentials-%s" .ManagedClusterName) "username" hub}}'
+  password: '{{hub fromSecret "policies" (printf "ontap-credentials-%s" .ManagedClusterName) "password" hub}}'
+---
+# NFS backends. ONTAP is served over NFS here, which also gives the ReadWriteMany access
+# that VM live migration needs. No node preparation is required for NFS.
+# Trident's dataLIF takes one address, so the SVM's two NFS data LIFs are two backends on the same SVM, each pinned
+# to the aggregate of the node that holds its LIF (as on ocp-a, 5 Nov, and the hub-b hub). The StorageClass lists
+# both. Values per cluster in policies/site-values/<cluster>.yaml.
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-lif1
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-lif1
+  managementLIF: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapManagementLIF" hub}}'
+  dataLIF: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapDataLIF" hub}}'
+  svm: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapSVM" hub}}'
+  aggregate: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapAggregate" hub}}'
+  # Volumes are named <prefix>_<namespace>_<pvc> on ONTAP (name template below). A per-cluster prefix shows who owns what
+  # when a cluster is torn down and its volumes are left behind on the SVM.
+  storagePrefix: '{{hub .ManagedClusterName | replace "-" "_" hub}}'
+  credentials:
+    name: ontap-credentials
+  # NetApp's basic sample (backend-tbc-ontap-nas.yaml) plus the name template. The advanced fields
+  # stay commented until the NetApp storage session settles them (runbook 0.4, section 3); change
+  # them here and in bootstrap/hub-a/hub-storage/04-backend.yaml (and hub-b) together.
+  # nfsMountOptions: nfsvers=4.1
+  # limitAggregateUsage: 80%
+  defaults:
+    # spaceReserve: none
+    # snapshotPolicy: none
+    # snapshotReserve: "0"
+    # snapshotDir: "false"
+    # ONTAP export policy given to new volumes. It must allow read-write (and superuser) from the storage
+    # subnet 10.60.140.0/24: on SVM_OCP_B the SVM "default" policy is read-only, so ocp-b uses SVM_Default.
+    exportPolicy: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapExportPolicy" | default "default" hub}}'
+    # encryption: "false"
+    # Trident name template, escaped so the policy writes it literally:
+    #   {{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}
+    nameTemplate: '{{ "{{" }} .config.StoragePrefix {{ "}}" }}_{{ "{{" }} .volume.Namespace {{ "}}" }}_{{ "{{" }} .volume.RequestName {{ "}}" }}'
+---
+# Second data LIF, on the partner node.
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-lif2
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-lif2
+  managementLIF: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapManagementLIF" hub}}'
+  dataLIF: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapDataLIF2" hub}}'
+  svm: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapSVM" hub}}'
+  aggregate: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapAggregate2" hub}}'
+  # Volumes are named <prefix>_<namespace>_<pvc> on ONTAP (name template below). A per-cluster prefix shows who owns what
+  # when a cluster is torn down and its volumes are left behind on the SVM.
+  storagePrefix: '{{hub .ManagedClusterName | replace "-" "_" hub}}'
+  credentials:
+    name: ontap-credentials
+  # NetApp's basic sample (backend-tbc-ontap-nas.yaml) plus the name template. The advanced fields
+  # stay commented until the NetApp storage session settles them (runbook 0.4, section 3); change
+  # them here and in bootstrap/hub-a/hub-storage/04-backend.yaml (and hub-b) together.
+  # nfsMountOptions: nfsvers=4.1
+  # limitAggregateUsage: 80%
+  defaults:
+    # spaceReserve: none
+    # snapshotPolicy: none
+    # snapshotReserve: "0"
+    # snapshotDir: "false"
+    # ONTAP export policy given to new volumes. It must allow read-write (and superuser) from the storage
+    # subnet 10.60.140.0/24: on SVM_OCP_B the SVM "default" policy is read-only, so ocp-b uses SVM_Default.
+    exportPolicy: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "ontapExportPolicy" | default "default" hub}}'
+    # encryption: "false"
+    # Trident name template, escaped so the policy writes it literally:
+    #   {{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}
+    nameTemplate: '{{ "{{" }} .config.StoragePrefix {{ "}}" }}_{{ "{{" }} .volume.Namespace {{ "}}" }}_{{ "{{" }} .volume.RequestName {{ "}}" }}'

@@ -1,0 +1,51 @@
+# Needs the policy trident-protect-prereqs (namespace + service account for the chart's pre-upgrade hook).
+# Trident Protect ships as a Helm chart, so Argo CD installs it directly on each prod cluster.
+# The chart and its images come straight from NetApp.
+# Trident itself (the CSI driver) is installed by policy and must be healthy first.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: trident-protect
+  namespace: openshift-gitops
+  labels:
+    velero.io/exclude-from-backup: "true"       # each hub\'s apps come from its own folder; never restored onto the other hub
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  generators:
+    - clusterDecisionResource:
+        configMapRef: acm-placement
+        labelSelector:
+          matchLabels:
+            cluster.open-cluster-management.io/placement: prod-clusters
+        requeueAfterSeconds: 180
+  template:
+    metadata:
+      name: 'trident-protect-{{name}}'
+      labels:
+        velero.io/exclude-from-backup: "true"
+    spec:
+      project: default
+      source:
+        repoURL: https://netapp.github.io/trident-protect-helm-chart
+        chart: trident-protect
+        targetRevision: 100.2606.0                       # CHANGEME: the Trident Protect release you want
+        helm:
+          valuesObject:
+            clusterName: '{{name}}'
+      destination:
+        server: '{{server}}'
+        namespace: trident-protect
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 1m
+            factor: 2
+            maxDuration: 15m

@@ -1,0 +1,31 @@
+# hub-b storage network: applied by hand in README Phase 1 step 2 (before Trident), then owned by hub-config.
+# OpenShift UCS layout (8 vNICs, vCon 1, fixed order): INFRA_vmstor-A/B are PCI functions 6 and 7 = ens5f6/ens5f7.
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: storage-network
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4: { enabled: false }
+        ipv6: { enabled: false }
+        link-aggregation:
+          mode: active-backup
+          options: { miimon: "100" }
+          port: [ens5f6, ens5f7]             # hub-b01: ens5f6 = 02:00:00:00:00:01, ens5f7 = 02:00:00:00:00:02 (INFRA_vmstor A/B)
+      - name: bond1.222                        # NFS VLAN 222
+        type: vlan
+        state: up
+        mtu: 1500
+        vlan: { base-iface: bond1, id: 222 }
+        ipv4:
+          enabled: true
+          dhcp: false
+          address: [{ ip: 10.60.140.51, prefix-length: 24 }]   # hub-b01-stor (host sheet)
+        ipv6: { enabled: false }

@@ -1,0 +1,20 @@
+# Hub system memory reservation sized from the node's RAM instead of the fixed default (about 1 GiB), which a
+# single-node hub running RHACM, MCE, GitOps, Trident and Observability exceeds (SystemMemoryExceedsReservation).
+# maxPods: the default 250 pods per node is too few for a single-node hub that also runs OpenShift Virtualization
+# and MTV (cnv-mtv-integrations): "0/1 nodes are available: 1 Too many pods" on 11 Nov.
+# Applying it REBOOTS the hub once: enable it in hub/kustomization.yaml in a maintenance window, one hub at a time.
+# Check afterwards: oc get node -o jsonpath='{.items[0].status.capacity.pods}' (500);
+#   oc debug node/<node> -- chroot /host grep -A3 systemReserved /etc/kubernetes/kubelet.conf
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: auto-sizing-reserved
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  autoSizingReserved: true
+  kubeletConfig:
+    maxPods: 500
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/master: ""

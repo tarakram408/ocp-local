@@ -1,0 +1,107 @@
+# 14: scheduled etcd backup. A CronJob runs the supported /usr/local/bin/cluster-backup.sh on a control
+# plane node (etcd snapshot + static pod resources) and copies the result to a NetApp volume, keeping the
+# newest etcdBackupRetain copies. Schedule and retention: common/values.yaml.
+# This deliberately does not use OpenShift's built-in automated etcd backup: that is a Technology Preview
+# feature and needs the TechPreviewNoUpgrade feature set, which cannot be undone and blocks upgrades
+# (feature 15 reports it if it is ever switched on).
+# Restore: the copied directory is what cluster-restore.sh expects (OpenShift docs, "Restoring to a previous
+# cluster state"); copy it back to a control plane node first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: etcd-backup
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: etcd-backup
+  namespace: etcd-backup
+---
+# The job runs privileged on the host (chroot), like "oc debug node"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: etcd-backup-privileged
+  namespace: etcd-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - kind: ServiceAccount
+    name: etcd-backup
+    namespace: etcd-backup
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etcd-backup
+  namespace: etcd-backup
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ontap-nas
+  resources:
+    requests:
+      storage: 20Gi                    # one backup is typically well under 1 GiB; 20Gi holds the retention easily
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-backup
+  namespace: etcd-backup
+spec:
+  schedule: '{{hub fromConfigMap "policies" "common-values" "etcdBackupSchedule" hub}}'
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: etcd-backup
+          restartPolicy: Never
+          hostNetwork: true
+          nodeSelector:
+            node-role.kubernetes.io/master: ""
+          tolerations:
+            - operator: Exists
+          containers:
+            - name: backup
+              image: registry.redhat.io/ubi9/ubi:latest
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              env:
+                - name: RETAIN
+                  value: '{{hub fromConfigMap "policies" "common-values" "etcdBackupRetain" hub}}'
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  NAME="$(date +%Y-%m-%d_%H%M)"
+                  HOSTDIR="/var/tmp/etcd-backup/${NAME}"
+                  chroot /host /usr/local/bin/cluster-backup.sh "${HOSTDIR}"
+                  cp -a "/host${HOSTDIR}" /backup/
+                  rm -rf "/host${HOSTDIR}"
+                  ls -1dt /backup/*/ | tail -n +$((RETAIN + 1)) | xargs -r rm -rf
+                  echo "etcd backup ${NAME} done; kept:"; ls -1 /backup
+              volumeMounts:
+                - name: host
+                  mountPath: /host
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: host
+              hostPath:
+                path: /
+                type: Directory
+            - name: backup
+              persistentVolumeClaim:
+                claimName: etcd-backup

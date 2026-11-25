@@ -1,0 +1,10 @@
+# Pins the exact release the prod clusters install. ACM also publishes its own image sets when
+# connected (oc get clusterimageset), but an explicit one keeps the version a reviewed git change.
+apiVersion: hive.openshift.io/v1
+kind: ClusterImageSet
+metadata:
+  name: img4.22.20-x86-64         # referenced by clusterImageSetNameRef in each ClusterInstance
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  releaseImage: quay.io/openshift-release-dev/ocp-release:4.22.20-x86_64   # same z-stream as both hubs (hub-a, hub-b updated to 4.22.20 on 5 Nov)

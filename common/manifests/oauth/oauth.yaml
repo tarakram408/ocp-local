@@ -1,0 +1,93 @@
+# Identity providers. This policy owns the whole OAuth identityProviders list (mustonlyhave), built on
+# the hub from the cluster's labels:
+#   config.example.com/htpasswd: enabled  -> "local" htpasswd provider (break-glass admin, see rbac)
+#   config.example.com/ad: enabled        -> "corp-ad" LDAP provider against Active Directory
+# Switching one off removes that provider at the next evaluation. The secrets come from the hub
+# (namespace "policies", never in git): htpasswd, ldap-bind, and the ldap-ca ConfigMap (only when
+# ldapInsecure is "false" in common-values).
+# kubeadmin keeps working either way.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-oauth
+spec:
+  remediationAction: enforce
+  severity: high
+  object-templates-raw: |
+    {{hub $htp := eq (index .ManagedClusterLabels "config.example.com/htpasswd") "enabled" hub}}
+    {{hub $ad := eq (index .ManagedClusterLabels "config.example.com/ad") "enabled" hub}}
+    {{hub $insecure := eq (fromConfigMap "policies" "common-values" "ldapInsecure") "true" hub}}
+    {{hub if $htp hub}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: htpasswd-secret
+          namespace: openshift-config
+        type: Opaque
+        data:
+          htpasswd: '{{hub fromSecret "policies" "htpasswd" "htpasswd" hub}}'
+    {{hub end hub}}
+    {{hub if $ad hub}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ldap-bind-password
+          namespace: openshift-config
+        type: Opaque
+        data:
+          bindPassword: '{{hub fromSecret "policies" "ldap-bind" "bindPassword" hub}}'
+    {{hub if not $insecure hub}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ldap-ca
+          namespace: openshift-config
+        data:
+          ca.crt: |
+            {{hub fromConfigMap "policies" "ldap-ca" "ca.crt" | autoindent hub}}
+    {{hub end hub}}
+    {{hub end hub}}
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: OAuth
+        metadata:
+          name: cluster
+        spec:
+          identityProviders:
+          {{hub if $htp hub}}
+          - name: local
+            type: HTPasswd
+            mappingMethod: claim
+            htpasswd:
+              fileData:
+                name: htpasswd-secret
+          {{hub end hub}}
+          {{hub if $ad hub}}
+          - name: corp-ad
+            type: LDAP
+            mappingMethod: claim
+            ldap:
+              url: '{{hub fromConfigMap "policies" "common-values" "ldapUrl" hub}}'
+              bindDN: '{{hub fromConfigMap "policies" "common-values" "ldapBindDN" hub}}'
+              bindPassword:
+                name: ldap-bind-password
+              {{hub if $insecure hub}}
+              insecure: true
+              {{hub else hub}}
+              insecure: false
+              ca:
+                name: ldap-ca
+              {{hub end hub}}
+              attributes:
+                id: [sAMAccountName]
+                preferredUsername: [sAMAccountName]
+                name: [displayName]
+                email: [mail]
+          {{hub end hub}}

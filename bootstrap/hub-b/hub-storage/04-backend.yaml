@@ -1,0 +1,43 @@
+# NetApp's be-otsc3.yaml (basic backend-tbc-ontap-nas.yaml sample plus a name template), once per data LIF.
+# hub-b (DC2) uses the DC2 SVM SVM_OCP_B, so the standby hub does not depend on DC1 storage.
+# Trident's dataLIF takes one address, so the SVM's two NFS data LIFs are two backends on the same SVM;
+# the StorageClass lists both (storagePools). Each backend is pinned to the aggregate of the node that holds its LIF.
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: be-ontap-nas-hub-b-04e
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-hub-b-04e
+  managementLIF: 10.61.250.126          # svm-ocp-b, SVM management LIF on nas0204e
+  dataLIF: 10.60.140.77                 # svm-b_lif1, NFS data LIF on nas0204e (VLAN 222)
+  svm: SVM_OCP_B
+  credentials:
+    name: be-ontap-nas-hub-b-secret     # one secret for both backends
+  storagePrefix: hub_b
+  aggregate: N04e_6tb_SSD_1              # nas0204e's data aggregate
+  defaults:
+    exportPolicy: SVM_Default            # rw for 10.60.140.0/24; the SVM "default" policy is read-only (rwrule never)
+    nameTemplate: "{{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}"
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: be-ontap-nas-hub-b-04f
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-hub-b-04f
+  managementLIF: 10.61.250.126          # svm-ocp-b, SVM management LIF
+  dataLIF: 10.60.140.78                 # svm-b_lif2, NFS data LIF on nas0204f (VLAN 222)
+  svm: SVM_OCP_B
+  credentials:
+    name: be-ontap-nas-hub-b-secret
+  storagePrefix: hub_b
+  aggregate: N04f_6tb_SSD_1              # nas0204f's data aggregate
+  defaults:
+    exportPolicy: SVM_Default            # rw for 10.60.140.0/24; the SVM "default" policy is read-only (rwrule never)
+    nameTemplate: "{{ .config.StoragePrefix }}_{{ .volume.Namespace }}_{{ .volume.RequestName }}"

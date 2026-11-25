@@ -1,0 +1,24 @@
+flowchart LR
+  subgraph MC["ManagedCluster labels (clusters/&lt;name&gt;/managedcluster.yaml)"]
+    l1["env: prod"]
+    l2["dr-role: primary | failover"]
+    l3["site: dc1 | dc2"]
+    l4["config.example.com/&lt;switch&gt;: enabled | disabled"]
+    l5["vendor: OpenShift · cloud: Other"]
+  end
+  subgraph PS["Policy sets → placements"]
+    p1["prod-baseline<br/>prod-virtualization<br/>(env In prod)"]
+    p2["prod-site<br/>(dr-role In primary / failover)"]
+    p3["common-config<br/>(config.example.com/* switches)"]
+    p4["hub-services<br/>(local-cluster = true)"]
+    p5["observability add-on<br/>(vendor = OpenShift)"]
+  end
+  l1 --> p1
+  l2 --> p2
+  l4 --> p3
+  l5 --> p5
+  p1 --> r1["Trident, NMState, networks,<br/>Virtualization, descheduler, VM NADs"]
+  p2 --> r2["primary: MTV, Shift operator,<br/>vCenter provider + maps"]
+  p3 --> r3["OAuth/AD, NTP, console, RBAC,<br/>etcd encryption, alerting"]
+  p4 --> r4["hub: MTV providers + maps,<br/>CA exchange, install secrets"]
+  p5 --> r5["metrics to Grafana"]

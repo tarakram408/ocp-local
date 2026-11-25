@@ -1,0 +1,11 @@
+apiVersion: operator.openshift.io/v1
+kind: Console
+metadata:
+  name: cluster
+spec:
+  customization:
+    # Browser tab title: consoleProductName from the cluster's site values (e.g. "Corp OCP-B"), else the common value.
+    customProductName: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "consoleProductName" | default (fromConfigMap "policies" "common-values" "consoleProductName") hub}}'
+    customLogoFile:
+      name: console-logo
+      key: logo.svg

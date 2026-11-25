@@ -1,0 +1,25 @@
+# 13: the internal image registry on NetApp. On bare metal the registry is installed "Removed" (no storage);
+# this gives it a ReadWriteMany volume on ontap-nas and switches it to Managed, so images pushed to it
+# (builds, imported images, VM disk images) survive a pod restart. Size: imageRegistrySize in common/values.yaml.
+# The claim must exist before the registry points at it, so it comes first.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: image-registry-storage
+  namespace: openshift-image-registry
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ontap-nas
+  resources:
+    requests:
+      storage: '{{hub fromConfigMap "policies" "common-values" "imageRegistrySize" hub}}'
+---
+apiVersion: imageregistry.operator.openshift.io/v1
+kind: Config
+metadata:
+  name: cluster
+spec:
+  managementState: Managed
+  storage:
+    pvc:
+      claim: image-registry-storage

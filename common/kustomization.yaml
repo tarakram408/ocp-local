@@ -1,0 +1,15 @@
+# Day-2 configuration shared by the hubs and the production clusters. See common/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - values.yaml
+generators:
+  - policy-generator.yaml
+# The Alertmanager configuration template, read by the common-alerting policy
+configMapGenerator:
+  - name: alertmanager-template
+    namespace: policies
+    files:
+      - alertmanager.yaml=alerting/alertmanager.yaml
+    options:
+      disableNameSuffixHash: true

@@ -1,0 +1,13 @@
+# hub-a (main hub) only, applied by hand in README Phase 1 step 3. Certified Trident operator (NetApp guidance),
+# same subscription the trident-operator policy uses on the production clusters.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: trident-operator
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: trident-operator
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

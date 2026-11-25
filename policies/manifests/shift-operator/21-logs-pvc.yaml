@@ -1,0 +1,13 @@
+# From the NetApp Shift installer (deploy/logs-pvc.yaml); storageClassName set to ontap-nas (RWX on NFS, SVM SVM_OCP_A).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shift-toolkit-logs
+  namespace: shift
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: ontap-nas

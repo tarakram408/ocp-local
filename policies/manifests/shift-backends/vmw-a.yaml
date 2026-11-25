@@ -1,0 +1,52 @@
+# Trident backend on the VMware SVM SVM_VMW_A (Alpha datastores ds_a_0-2), used only by the NetApp Shift Toolkit,
+# same pattern as vmw-c.yaml: Shift clones the datastore volume on ONTAP and Trident imports the clone as the VM's
+# PVC. Every production cluster gets it. Not for general provisioning: anything created on it lands on the VMware SVM.
+# ONTAP (23 Nov): management LIF vmw-a 10.61.250.202 (nas01e); data LIFs alph0-140 .241 and alph1-140 .242
+# (nas01f), alph2-140 .243 (nas01e); ds_a_0-2 use export policy VMware_Default (10.60.140.0/24, rw, superuser);
+# aggregates aggr3e_ssd1/N03f/N03g/aggr3h_ssd1 assigned. Volumes: ds_a_0 (11 TB) and ds_a_1 (10 TB) on N03f,
+# ds_a_2 (10 TB) on N03e. NetApp recommends Shift source datastores of 5 TB or less.
+# No aggregate is pinned (unlike SVM_VMW_C, which is pinned to N03g): the backend's pools are all four assigned
+# aggregates, so clones of any ds_a_* volume, whichever aggregate it is on, belong to this backend.
+# Data LIF alph0-140 .241 (nas01f), the node that holds two of the three Alpha volumes.
+# ONTAP account trident_admin (vsadmin, http + ontapi) already exists on SVM_VMW_A (vsadmin is locked; snapcenter4
+# belongs to SnapCenter). Hub secret, never in git; create it BEFORE pushing this file:
+#   read -p "SVM_VMW_A user: " U; read -s -p "Password: " P; echo
+#   oc $H -n policies create secret generic ontap-credentials-vmw-a --from-literal=username="$U" --from-literal=password="$P"; unset P
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ontap-credentials-vmw-a
+  namespace: trident
+type: Opaque
+data:
+  username: '{{hub fromSecret "policies" "ontap-credentials-vmw-a" "username" hub}}'
+  password: '{{hub fromSecret "policies" "ontap-credentials-vmw-a" "password" hub}}'
+---
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-vmw-a
+  namespace: trident
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  backendName: ontap-nas-vmw-a
+  managementLIF: 10.61.250.202      # vmw-a, default-management
+  dataLIF: 10.60.140.241            # alph0-140 on nas01f
+  svm: SVM_VMW_A
+  storagePrefix: '{{hub .ManagedClusterName | replace "-" "_" hub}}'
+  credentials:
+    name: ontap-credentials-vmw-a
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas-vmw-a
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-nas
+  storagePools: "ontap-nas-vmw-a:.*"
+  fsType: nfs
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

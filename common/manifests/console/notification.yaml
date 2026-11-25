@@ -1,0 +1,10 @@
+# Banner across the top of the console. Text and colours are per cluster, from <cluster>-site-values.
+apiVersion: console.openshift.io/v1
+kind: ConsoleNotification
+metadata:
+  name: cluster-identity
+spec:
+  location: BannerTop
+  text: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "bannerText" hub}}'
+  color: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "bannerColor" hub}}'
+  backgroundColor: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "bannerBackground" hub}}'

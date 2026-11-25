@@ -1,0 +1,63 @@
+# 19: readable disk names for MTV migrations (ocp-a and both hubs). Every plan in openshift-mtv that has not started gets
+# a PVC name template that names each disk <short vm name>-disk-<n>, so Trident names the ONTAP volume
+# <cluster>_<namespace>_<short vm name>_disk_<n>. No script and no per-VM edits needed.
+#
+# Functions used (lower, splitn, replace, regexMatch, printf, slice) are in RHACM's template function set.
+# A name that is still invalid after the clean-up (other special characters) is left to MTV's default.
+#
+# How: MTV checks each disk name as a Kubernetes label (lower case, digits and "-", no dots, max 63), and a plain Go
+# template cannot replace characters. So this policy reads each plan's VM list and writes the template with the clean
+# name already worked out for every VM whose VMware name is not valid as it is:
+#   app-vm01.corp.example.com -> app-vm01-disk-0      (host name only: the part before the first dot)
+#   WEB_Server.corp.example.com       -> web-server-disk-0         (lower case, "_" -> "-")
+#   vm-test01-linux              -> vm-test01-linux-disk-0       (valid already: {{.TargetVmName}})
+# Generated template, for example:
+#   {{if eq .VmName "app-vm01.corp.example.com"}}app-vm01{{else}}{{.TargetVmName}}{{end}}-disk-{{.DiskIndex}}
+# VMs added to a plan later are picked up within about 15 seconds (check the plan's Details tab before Start).
+# Only the disk names change: the VM keeps the name MTV gives it.
+# Opt out for one plan (keep a template typed on its Details tab): annotate it example.com/pvc-names=manual.
+# Started and finished plans are never touched.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: mtv-pvc-name-template
+spec:
+  remediationAction: enforce
+  severity: low
+  evaluationInterval:
+    compliant: 15s
+    noncompliant: 15s
+  object-templates-raw: |
+    {{- range $p := (lookup "forklift.konveyor.io/v1beta1" "Plan" "openshift-mtv" "").items }}
+    {{- $ann := $p.metadata.annotations }}
+    {{- $manual := false }}
+    {{- if $ann }}{{- if eq (index $ann "example.com/pvc-names") "manual" }}{{- $manual = true }}{{- end }}{{- end }}
+    {{- if and (not $p.status.migration) (not $manual) }}
+    {{- $t := "" }}
+    {{- $close := "" }}
+    {{- range $vm := $p.spec.vms }}
+    {{- if $vm.name }}
+    {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $vm.name) }}
+    {{- $short := (splitn "." 2 (lower $vm.name))._0 }}
+    {{- $short = replace "_" "-" $short }}
+    {{- $short = replace " " "-" $short }}
+    {{- if gt (len $short) 55 }}{{- $short = slice $short 0 55 }}{{- end }}
+    {{- if regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $short }}
+    {{- $t = printf "%s{{if eq .VmName %q}}%s{{else}}" $t $vm.name $short }}
+    {{- $close = printf "%s{{end}}" $close }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: forklift.konveyor.io/v1beta1
+        kind: Plan
+        metadata:
+          name: {{ $p.metadata.name }}
+          namespace: openshift-mtv
+        spec:
+          pvcNameTemplate: {{ printf "%s{{.TargetVmName}}%s-disk-{{.DiskIndex}}" $t $close | printf "%q" }}
+          pvcNameTemplateUseGenerateName: false
+    {{- end }}
+    {{- end }}

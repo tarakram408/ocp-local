@@ -1,0 +1,131 @@
+# Syncs AD groups into OpenShift groups on a schedule and removes OpenShift groups whose AD group is gone.
+# Which groups: every group under ldapGroupsBaseDN, or only the DNs in ldapGroupDNs when that is set. The RBAC policy binds roles to these groups.
+# Everything here is deleted again when config.example.com/ad is switched off (pruneObjectBehavior).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ldap-sync
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ldap-sync
+  namespace: ldap-sync
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ldap-group-sync
+rules:
+  - apiGroups: ["user.openshift.io"]
+    resources: ["groups"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ldap-group-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ldap-group-sync
+subjects:
+  - kind: ServiceAccount
+    name: ldap-sync
+    namespace: ldap-sync
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-bind-password
+  namespace: ldap-sync
+type: Opaque
+data:
+  bindPassword: '{{hub fromSecret "policies" "ldap-bind" "bindPassword" hub}}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-ca
+  namespace: ldap-sync
+data:
+  ca.crt: |
+    {{hub if ne (fromConfigMap "policies" "common-values" "ldapInsecure") "true" hub}}{{hub fromConfigMap "policies" "ldap-ca" "ca.crt" | autoindent hub}}{{hub end hub}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-sync-config
+  namespace: ldap-sync
+data:
+  ldap-sync.yaml: |
+    kind: LDAPSyncConfig
+    apiVersion: v1
+    url: '{{hub fromConfigMap "policies" "common-values" "ldapSyncUrl" hub}}'
+    bindDN: '{{hub fromConfigMap "policies" "common-values" "ldapBindDN" hub}}'
+    bindPassword:
+      file: /etc/ldap-secret/bindPassword
+    {{hub if eq (fromConfigMap "policies" "common-values" "ldapInsecure") "true" hub}}insecure: true{{hub else hub}}ca: /etc/ldap-ca/ca.crt{{hub end hub}}
+    augmentedActiveDirectory:
+      groupsQuery:
+        baseDN: '{{hub fromConfigMap "policies" "common-values" "ldapGroupsBaseDN" hub}}'
+        scope: sub
+        derefAliases: never
+        filter: (objectClass=group)
+        pageSize: 1000
+      groupUIDAttribute: distinguishedName
+      groupNameAttributes: [sAMAccountName]
+      usersQuery:
+        baseDN: '{{hub fromConfigMap "policies" "common-values" "ldapUsersBaseDN" hub}}'
+        scope: sub
+        derefAliases: never
+        filter: '{{hub fromConfigMap "policies" "common-values" "ldapUsersFilter" hub}}'
+        pageSize: 1000
+      userNameAttributes: [sAMAccountName]
+      groupMembershipAttributes: [memberOf]       # direct membership, as in the organization's existing sync
+  whitelist.txt: |
+    {{hub fromConfigMap "policies" "common-values" "ldapGroupDNs" | autoindent hub}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ldap-group-sync
+  namespace: ldap-sync
+spec:
+  schedule: '{{hub fromConfigMap "policies" "common-values" "ldapSyncSchedule" hub}}'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: ldap-sync
+          restartPolicy: Never
+          containers:
+            - name: sync
+              image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
+              command: ["/bin/bash", "-c"]
+              # With ldapGroupDNs empty, every group found by the groups query (ldapGroupsBaseDN) is synced;
+              # otherwise only the listed DNs.
+              args:
+                - >-
+                  W=""; grep -q '[^[:space:]]' /etc/config/whitelist.txt && W="--whitelist=/etc/config/whitelist.txt";
+                  oc adm groups sync --sync-config=/etc/config/ldap-sync.yaml $W --confirm &&
+                  oc adm prune groups --sync-config=/etc/config/ldap-sync.yaml --confirm
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { memory: 256Mi }
+              volumeMounts:
+                - { name: config, mountPath: /etc/config, readOnly: true }
+                - { name: secret, mountPath: /etc/ldap-secret, readOnly: true }
+                - { name: ca, mountPath: /etc/ldap-ca, readOnly: true }
+          volumes:
+            - name: config
+              configMap: { name: ldap-sync-config }
+            - name: secret
+              secret: { secretName: ldap-bind-password }
+            - name: ca
+              configMap: { name: ldap-ca }
+

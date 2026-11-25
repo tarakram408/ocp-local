@@ -1,0 +1,54 @@
+# Dedicated live migration network (Red Hat's pattern: OVS bridge + OVN localnet), as built on ocp-a on 6 Nov 2026
+# (manual/ocp-a/18.live-migration): bond3 on ens5f4/ens5f5 (Storage_Uplink, the vMotion uplinks on VMware) in OVS bridge
+# br-lm, mapped to localnet "lm-trunk". VLAN 333 is tagged by the NAD; the nodes get no address on it.
+# The virt-handler pods take their addresses from liveMigrationSubnets minus liveMigrationExclude in each cluster's
+# site values (since 17 Nov, IPAM block .10-.35 reserved by Corp): ocp-a = .10-.25 (16), ocp-b = .26-.35 (10).
+# virtualization-config/hyperconverged.yaml points live migration at it under spec.virtualization.liveMigrationConfig
+# (the 4.22 path; the old spec.liveMigrationConfig is ignored with only a warning).
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: live-migration
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  maxUnavailable: 1
+  desiredState:
+    interfaces:
+      - name: bond3
+        type: bond
+        state: up
+        mtu: 1500
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        link-aggregation:
+          mode: active-backup
+          options:
+            miimon: "100"
+          port:
+            - ens5f4                 # Storage_Uplink_FI-A, fabric A
+            - ens5f5                 # Storage_Uplink_FI-B, fabric B
+      - name: br-lm
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options:
+            stp: false
+          port:
+            - name: bond3
+    ovn:
+      bridge-mappings:
+        - localnet: lm-trunk
+          bridge: br-lm
+          state: present
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: live-migration
+  namespace: openshift-cnv
+spec:
+  config: '{"cniVersion":"0.4.0","name":"live-migration","type":"ovn-k8s-cni-overlay","topology":"localnet","physicalNetworkName":"lm-trunk","netAttachDefName":"openshift-cnv/live-migration","vlanID":333,"mtu":1500,"subnets":"{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "liveMigrationSubnets" hub}}","excludeSubnets":"{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "liveMigrationExclude" hub}}"}'

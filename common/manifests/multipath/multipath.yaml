@@ -1,0 +1,57 @@
+# Device mapper multipath with multipathd running, for SAN LUNs (FC or iSCSI) presented to the nodes.
+# Applies to both pools: the control plane nodes run VMs too (schedulable-control-plane). To limit it to
+# the dedicated workers, delete the master document below. Only data LUNs are affected; the boot disk
+# is not converted (that needs the rd.multipath install-time kernel arguments).
+# MachineConfig: the Machine Config Operator reboots each pool one node at a time.
+# Decoded /etc/multipath.conf:
+#   # Managed by the common-multipath policy (ocp-local)
+#   defaults {
+#       user_friendly_names yes
+#       find_multipaths yes
+#       enable_foreign "^$"
+#   }
+#   blacklist {
+#   }
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-worker-multipath
+  labels:
+    machineconfiguration.openshift.io/role: worker
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/multipath.conf
+          mode: 420                   # 0644
+          overwrite: true
+          contents:
+            source: data:text/plain;charset=utf-8;base64,IyBNYW5hZ2VkIGJ5IHRoZSBjb21tb24tbXVsdGlwYXRoIHBvbGljeSAoeWFsZS1vY3AtZ2l0b3BzKQpkZWZhdWx0cyB7CiAgICB1c2VyX2ZyaWVuZGx5X25hbWVzIHllcwogICAgZmluZF9tdWx0aXBhdGhzIHllcwogICAgZW5hYmxlX2ZvcmVpZ24gIl4kIgp9CmJsYWNrbGlzdCB7Cn0K
+    systemd:
+      units:
+      - name: multipathd.service
+        enabled: true
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-master-multipath
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/multipath.conf
+          mode: 420                   # 0644
+          overwrite: true
+          contents:
+            source: data:text/plain;charset=utf-8;base64,IyBNYW5hZ2VkIGJ5IHRoZSBjb21tb24tbXVsdGlwYXRoIHBvbGljeSAoeWFsZS1vY3AtZ2l0b3BzKQpkZWZhdWx0cyB7CiAgICB1c2VyX2ZyaWVuZGx5X25hbWVzIHllcwogICAgZmluZF9tdWx0aXBhdGhzIHllcwogICAgZW5hYmxlX2ZvcmVpZ24gIl4kIgp9CmJsYWNrbGlzdCB7Cn0K
+    systemd:
+      units:
+      - name: multipathd.service
+        enabled: true

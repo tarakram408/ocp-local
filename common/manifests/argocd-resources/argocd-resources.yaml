@@ -1,0 +1,68 @@
+# Hub Argo CD application controller sizing. The operator default (2Gi limit) was OOMKilled on hub-a on 19 Nov while
+# syncing a large change (policies + common-config + clusters at once): CrashLoopBackOff, exit 137. Raised by hand, then
+# kept here so both hubs and a rebuilt hub get it. musthave: only these fields are set, the rest of the ArgoCD CR
+# (PolicyGenerator init container from bootstrap/argocd, RBAC from common-argocd-rbac) is left alone.
+# Also: Argo CD health for report-only policies (below).
+# Check: oc -n openshift-gitops adm top pod openshift-gitops-application-controller-0
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-argocd-resources
+spec:
+  remediationAction: enforce
+  severity: medium
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: argoproj.io/v1beta1
+        kind: ArgoCD
+        metadata:
+          name: openshift-gitops
+          namespace: openshift-gitops
+        spec:
+          controller:
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                cpu: "4"
+                memory: 6Gi
+          # Policy health for Argo CD: same as the built-in check (Compliant = Healthy, NonCompliant = Degraded), except
+          # policies annotated example.com/argocd-health=report-only (vm-tagging-report) are always Healthy: they list
+          # things to fix and are NonCompliant by design, which would otherwise keep the policies app Degraded.
+          # A policy placed on no cluster (a common/ switch that is off everywhere) has no compliance: Healthy, not
+          # Progressing, so common-config is not stuck Progressing.
+          # CHANGING THIS CHECK: musthave adds the new version next to the old one instead of replacing it. After the
+          # sync, remove the list once and the policy writes back only the current version:
+          #   oc -n openshift-gitops patch argocd openshift-gitops --type json -p '[{"op":"remove","path":"/spec/resourceHealthChecks"}]'
+          resourceHealthChecks:
+            - group: policy.open-cluster-management.io
+              kind: Policy
+              check: |
+                hs = {}
+                local a = obj.metadata.annotations
+                local c = nil
+                if obj.status ~= nil then c = obj.status.compliant end
+                if a ~= nil and a["example.com/argocd-health"] == "report-only" then
+                  hs.status = "Healthy"
+                  hs.message = "Report only, compliance: " .. (c or "not reported yet")
+                  return hs
+                end
+                if c == nil and (obj.status == nil or obj.status.status == nil or #obj.status.status == 0) then
+                  hs.status = "Healthy"
+                  hs.message = "Not placed on any cluster (switch off)"
+                elseif c == nil then
+                  hs.status = "Progressing"
+                  hs.message = "Waiting for the status to be reported"
+                elseif c == "Compliant" then
+                  hs.status = "Healthy"
+                  hs.message = "All templates are compliant"
+                elseif c == "Pending" then
+                  hs.status = "Progressing"
+                  hs.message = "Waiting for dependencies"
+                else
+                  hs.status = "Degraded"
+                  hs.message = "At least one template is " .. c
+                end
+                return hs

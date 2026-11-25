@@ -1,0 +1,8 @@
+# Namespace of the ocp-b ManagedCluster on the hub. Holds the KlusterletAddonConfig and the
+# auto-import-secret (created by hand, docs/ocp-b-build.md) that lets the hub import the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ocp-b
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"

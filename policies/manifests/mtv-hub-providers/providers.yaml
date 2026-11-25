@@ -1,0 +1,56 @@
+# Runs on the hub. Registers every production cluster (env=prod) as an MTV provider on the hub, so VMs can be
+# migrated between ocp-a and ocp-b (a label of its own, not env=prod: ocp-a is configured by hand and must not
+# receive the env=prod policies) from the hub console: Migration > Plans > Create plan.
+# Does what ACM's cnv-mtv-integrations would do for clusters labelled acm/cnv-operator-install, without that
+# label: the label also makes ACM own OpenShift Virtualization, including the HyperConverged CR that
+# virtualization-config manages (live-migration network, timeouts, limits). Per cluster:
+#   ManagedServiceAccount mtv-provider (namespace <cluster>): ACM creates the service account on the cluster
+#     (open-cluster-management-agent-addon/mtv-provider) and keeps a rotating token in the secret
+#     <cluster>/mtv-provider on the hub. cluster-admin for it comes from the mtv-provider-access policy.
+#   Secret openshift-mtv/<cluster>-mtv-provider: token and CA copied from that secret (no credentials in git).
+#   Provider openshift-mtv/<cluster>: type openshift, API URL from the ManagedCluster.
+# The secret and the provider appear once the token exists (a minute after the ManagedServiceAccount).
+# Managed-cluster templates (no "hub" keyword): resolved by the policy controller on the hub itself.
+object-templates-raw: |
+  {{- range (lookup "cluster.open-cluster-management.io/v1" "ManagedCluster" "" "" "config.example.com/mtv-provider=enabled").items }}
+  {{- $cluster := .metadata.name }}
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: authentication.open-cluster-management.io/v1beta1
+      kind: ManagedServiceAccount
+      metadata:
+        name: mtv-provider
+        namespace: {{ $cluster }}
+      spec:
+        rotation:
+          enabled: true
+          validity: 720h0m0s
+  {{- if and .spec.managedClusterClientConfigs (lookup "v1" "Secret" $cluster "mtv-provider").metadata }}
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: {{ $cluster }}-mtv-provider
+        namespace: openshift-mtv
+        labels:
+          createdForProviderType: openshift
+      type: Opaque
+      data:
+        token: '{{ fromSecret $cluster "mtv-provider" "token" }}'
+        cacert: '{{ fromSecret $cluster "mtv-provider" "ca.crt" }}'
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      metadata:
+        name: {{ $cluster }}
+        namespace: openshift-mtv
+      spec:
+        type: openshift
+        url: {{ (index .spec.managedClusterClientConfigs 0).url }}
+        secret:
+          name: {{ $cluster }}-mtv-provider
+          namespace: openshift-mtv
+  {{- end }}
+  {{- end }}

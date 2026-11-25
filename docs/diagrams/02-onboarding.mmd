@@ -1,0 +1,10 @@
+flowchart TB
+  a["1. Install with the Assisted Installer<br/>(console.redhat.com, static network per node)"] --> b["2. chmod 600 the admin kubeconfig<br/>oc whoami → system:admin"]
+  b --> c["3. Uncomment the cluster in clusters/kustomization.yaml<br/>git push"]
+  c --> d["4. Argo CD app <b>clusters</b> creates<br/>ManagedCluster + labels + KlusterletAddonConfig"]
+  d --> e["5. Hub: auto-import-secret<br/>(from the admin kubeconfig)"]
+  e --> f["6. RHACM installs the klusterlet<br/>JOINED / AVAILABLE = True"]
+  f --> g["7. Placements match the labels<br/>env=prod, dr-role, site, config.example.com/*"]
+  g --> h["8. Policies enforce in dependency order<br/>operators → networks → Trident → Virtualization → …"]
+  h --> i["9. MachineConfigs roll the nodes<br/>(NTP, PSI) one at a time"]
+  i --> j["10. Validate: PVC, VM on VLAN, live migration,<br/>AD login, Grafana, MTV provider"]

@@ -1,0 +1,17 @@
+# The VDDK image lives in the internal registry in openshift-mtv; MTV's validation job and the disk importer pods
+# run in the plan's target project (e.g. virtual-machines), which by default cannot pull from openshift-mtv
+# ("authentication required", 17 Nov). Every service account may pull from openshift-mtv: it holds only the VDDK
+# image, and migration targets can be any VM project. Replaces the hand-run "oc policy add-role-to-group" commands.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vddk-image-pullers
+  namespace: openshift-mtv
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:image-puller
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:serviceaccounts

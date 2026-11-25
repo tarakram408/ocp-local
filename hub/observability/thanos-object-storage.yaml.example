@@ -1,0 +1,39 @@
+# Copy to thanos-object-storage.yaml (git-ignored), fill in, and apply on the hub it belongs to:
+#   oc apply -f hub/observability/thanos-object-storage.yaml
+# Each hub has its own bucket: acm-metrics-hub-a on hub-a, acm-metrics-hub-b on hub-b.
+# Also, once per hub, the S3 root CA and the pull secret:
+#   oc -n open-cluster-management-observability create secret generic thanos-s3-ca --from-file=ca.crt=<svm>-ca.pem
+#   The CA is that of the SVM holding this hub's bucket: SVM_OCP_A's SVM_SYSMGR_CA on hub-a, SVM_OCP_B's on hub-b.
+#   Every SVM has its own CA called SVM_SYSMGR_CA. When thanos-store and thanos-compact crash-loop with
+#   "x509: certificate signed by unknown authority (... crypto/rsa: verification error ... SVM_SYSMGR_CA)", Thanos is
+#   talking to an SVM whose CA it does not hold: check the bucket and endpoint in thanos.yaml FIRST, then the CA.
+#   After a change: oc delete pod -n open-cluster-management-observability -l app.kubernetes.io/name=thanos-store
+#   (and thanos-compact).
+# hub-b (standby): the observability operator labels thanos-object-storage for the hub backup by itself, so hub-a's
+#   copy is in every credentials backup and hub-b's passive restore can bring it over (12 Nov: hub-b's Thanos pointed
+#   at acm-metrics-hub-a on SVM_OCP_A and crash-looped for two weeks, 1,759 restarts). On hub-b, create its own secret
+#   (bucket acm-metrics-hub-b, endpoint s3-site-b.example.com, keys of that bucket's user) WITHOUT velero labels,
+#   and after each restore check: oc get secret thanos-object-storage -n open-cluster-management-observability \
+#   -o jsonpath='{.data.thanos\.yaml}' | base64 -d | grep -E "bucket|endpoint". hub/backup/README.md.
+#   oc create namespace open-cluster-management-observability --dry-run=client -o yaml | oc apply -f -
+#   oc create secret generic multiclusterhub-operator-pull-secret -n open-cluster-management-observability \
+#     --from-literal=.dockerconfigjson="$(oc extract secret/pull-secret -n openshift-config --to=-)" \
+#     --type=kubernetes.io/dockerconfigjson
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-object-storage
+  namespace: open-cluster-management-observability
+type: Opaque
+stringData:
+  thanos.yaml: |
+    type: s3
+    config:
+      bucket: acm-metrics-hub-a          # CHANGEME: acm-metrics-hub-b on hub-b
+      endpoint: s3-site-a.example.com # hub-a: SVM_OCP_A; hub-b: s3-site-b.example.com (no https://)
+      insecure: false
+      access_key: CHANGEME
+      secret_key: CHANGEME
+      http_config:
+        tls_config:
+          ca_file: /etc/minio/certs/ca.crt   # from the secret thanos-s3-ca (tlsSecretName in the MultiClusterObservability)

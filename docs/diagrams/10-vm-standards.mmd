@@ -1,0 +1,27 @@
+flowchart LR
+  subgraph create["How a VM arrives"]
+    t["Corp template<br/>(Catalog)"]
+    m["MTV plan<br/>(Shift cold / VDDK warm)"]
+    y["YAML / other template /<br/>InstanceTypes page"]
+  end
+  subgraph names["Disk name in ONTAP"]
+    n1["&lt;cluster&gt;_&lt;ns&gt;_&lt;vm&gt;_disk_0<br/>(vm-templates: no populator)"]
+    n2["&lt;cluster&gt;_&lt;ns&gt;_&lt;vm&gt;_disk_&lt;n&gt;<br/>(switch 19: PVC name template)"]
+    n3["prime_&lt;uuid&gt;<br/>(map with vm-storage-map.sh)"]
+  end
+  subgraph tags["Corp tags"]
+    a["vm-tags admission check<br/>Warn / Deny (vmTagEnforcement)"]
+    x["MTV exempt:<br/>never blocked"]
+    r["vm-tagging-report<br/>(inform: untagged VMs)"]
+    s["scripts/tag-vm.sh<br/>(interactive or CSV wave)"]
+  end
+  t --> n1
+  m --> n2
+  y --> n3
+  t -->|"tags filled in the wizard"| a
+  y --> a
+  m --> x
+  x --> r
+  a -->|"Warn: created untagged"| r
+  r --> s
+  s -->|"tagged: drops off"| r

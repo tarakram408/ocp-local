@@ -1,0 +1,15 @@
+# ACM search database on persistent storage. Without it search-postgres uses emptyDir and the
+# SearchPVCNotPresentCritical alert fires. Server-side apply: Argo CD owns only spec.dbStorage of the
+# Search resource that the MultiClusterHub creates.
+apiVersion: search.open-cluster-management.io/v1alpha1
+kind: Search
+metadata:
+  name: search-v2-operator
+  namespace: open-cluster-management
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
+spec:
+  dbStorage:
+    storageClassName: ontap-nas
+    size: 10Gi

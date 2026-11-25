@@ -1,0 +1,46 @@
+# TLS for the Shift service, automated: no certificate or key in git and none made by hand.
+# 1. The annotation on NetApp's Service asks OpenShift's service CA for a serving certificate: secret
+#    shift/shift-toolkit-tls (tls.crt, tls.key) for shift-toolkit-service.shift.svc and .svc.cluster.local, valid about
+#    2 years and renewed automatically before expiry.
+# 2. NetApp's bundle reads the certificate, key and CA from ConfigMaps with fixed names and keys, so the three ConfigMaps
+#    below are filled from that secret and from the service CA bundle OpenShift puts in every namespace
+#    (openshift-service-ca.crt). The templates are resolved on ocp-a at each evaluation, so a renewed certificate
+#    reaches the ConfigMaps by itself; the pods read them through subPath mounts, so restart them after a renewal:
+#      oc -n shift rollout restart deploy shift-toolkit shift-toolkit-listener
+# First apply: the secret appears a few seconds after the annotation; until then this policy shows a template error.
+# Replaces the self-signed certificate made by hand on 13 Nov (restart both deployments once after the switch).
+# The private key ends up in a ConfigMap because NetApp's bundle mounts it from one: keep namespace shift for admins.
+apiVersion: v1
+kind: Service
+metadata:
+  name: shift-toolkit-service
+  namespace: shift
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: shift-toolkit-tls
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-service-server-crt
+  namespace: shift
+data:
+  server.cert: |
+    {{ fromSecret "shift" "shift-toolkit-tls" "tls.crt" | base64dec | autoindent }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-service-server-key
+  namespace: shift
+data:
+  server.key: |
+    {{ fromSecret "shift" "shift-toolkit-tls" "tls.key" | base64dec | autoindent }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shift-toolkit-service-ca
+  namespace: shift
+data:
+  ca.crt: |
+    {{ fromConfigMap "shift" "openshift-service-ca.crt" "service-ca.crt" | autoindent }}

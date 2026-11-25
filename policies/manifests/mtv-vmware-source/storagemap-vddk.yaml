@@ -1,0 +1,141 @@
+# MTV storage map for the VDDK provider vcenter01-vddk (warm migrations): the Charlie (ds_c_*) and, since 23 Nov,
+# Bravo (ds_b_*, ds_l_*) and Alpha (ds_a_*) datastores to ontap-nas
+# (SVM SVM_OCP_A), NOT to the Shift StorageClass ontap-nas-vmw-c: MTV refuses a warm plan that targets Shift.
+# The disks are copied over the network and land on storage covered by SVM-DR, so no clone split or storage move
+# is needed afterwards. Name kept from the map created in the console on 17 Nov, so the policy adopts it.
+# Each datastore by vCenter id AND name (23 Nov): the console's storage map page lists only entries that carry the id,
+# and the policy is mustonlyhave, so the entries must match what MTV and the console expect. Ids from
+# oc -n openshift-mtv get storagemap <map> -o json | jq '.status.references' (vCenter vcenter01).
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: vcenter01-vddk-storagemap
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: vcenter01-vddk
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    - source:
+        id: datastore-4086
+        name: ds_c_0
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4087
+        name: ds_c_1
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4088
+        name: ds_c_2
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-8374
+        name: ds_c_3
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4103
+        name: ds_b_0
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4104
+        name: ds_b_1
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4105
+        name: ds_b_2
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4092
+        name: ds_b_3
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4093
+        name: ds_b_4
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4094
+        name: ds_b_5
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4095
+        name: ds_b_6
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4082
+        name: ds_l_0
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4083
+        name: ds_l_1
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4084
+        name: ds_l_2
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4163
+        name: ds_a_0
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4101
+        name: ds_a_1
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        id: datastore-4102
+        name: ds_a_2
+      destination:
+        storageClass: ontap-nas
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem

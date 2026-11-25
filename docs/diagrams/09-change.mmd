@@ -1,0 +1,8 @@
+flowchart LR
+  a["Edit in git<br/>(site values, manifest, generator)"] --> b["Local check<br/>kustomize build --enable-alpha-plugins"]
+  b --> c["git commit + push"]
+  c --> d["Argo CD sync<br/>(auto, or patch operation.sync)"]
+  d --> e{"Policy<br/>Compliant?"}
+  e -->|yes| f["Verify on the cluster<br/>oc get … · console"]
+  e -->|no| g["Read the message<br/>oc get policy -n &lt;cluster&gt; …<br/>.status.details[].history[0]"]
+  g --> a

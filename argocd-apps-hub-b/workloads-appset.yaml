@@ -1,0 +1,39 @@
+# One Argo Application per cluster selected by the ACM Placement "prod-clusters" (hub/gitops/acm-integration.yaml).
+# For an active/passive app, point labelSelector at a Placement that selects dr-role=primary only.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: prod-workloads
+  namespace: openshift-gitops
+  labels:
+    velero.io/exclude-from-backup: "true"       # each hub's apps come from its own folder; never restored onto the other hub
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  generators:
+    - clusterDecisionResource:
+        configMapRef: acm-placement
+        labelSelector:
+          matchLabels:
+            cluster.open-cluster-management.io/placement: prod-clusters
+        requeueAfterSeconds: 180
+  template:
+    metadata:
+      name: 'example-app-{{name}}'
+      labels:
+        velero.io/exclude-from-backup: "true"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/CHANGEME/ocp-local.git
+        targetRevision: main
+        path: apps/example-app
+      destination:
+        server: '{{server}}'
+        namespace: example-app
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

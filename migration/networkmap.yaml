@@ -1,0 +1,39 @@
+# MTV network map for the migration from the Production vCenter to ocp-a.
+# One entry per VMware port group that has VMs (RVTools export of 2026-10-20, migration/vmware-port-groups.csv),
+# each mapped to the NAD named after it in the 'default' namespace (policies/manifests/vm-networks/):
+# "_" and "." become "-" (the Multus webhook accepts only DNS-1123 labels).
+# Not mapped: 'VM Network', 'ApstraVM' and 'vCenterNet' (standard vSwitches: vCenter and the Apstra appliances
+# on mgmt-01, not migrated). Add an entry if a VM on another port group joins a wave.
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: vcenter01-to-ocp
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: vcenter01
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+  - source:
+      name: dv_vm_vlan101
+    destination:
+      type: multus
+      namespace: default
+      name: vm-vlan101
+  - source:
+      name: dv_vm_vlan102
+    destination:
+      type: multus
+      namespace: default
+      name: vm-vlan102
+  - source:
+      name: vm-vlan101
+    destination:
+      type: multus
+      namespace: default
+      name: vm-storage-vlan555

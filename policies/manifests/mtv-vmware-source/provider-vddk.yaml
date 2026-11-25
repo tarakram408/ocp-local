@@ -1,0 +1,20 @@
+# Second MTV provider for the same vCenter, with VMware's VDDK: used for WARM migrations (disks copied over the network
+# while the VM runs, changed blocks copied until cutover) to ontap-nas, which SVM-DR covers. First used 17 Nov
+# (vm-test01-linux: 36 GiB first copy in about 3 min, about 3-4 min downtime at cutover). docs/vm-migration-warm-vddk.md.
+# Shift (provider vcenter01, cold) stays the default for VMs on the Charlie datastores; Shift cannot do warm.
+# Same vCenter login secret as vcenter01 (provider.yaml). The image is built from VMware's VDDK on the cluster
+# (scripts/build-vddk-image.sh) into the internal registry; its reference is the site value vddkInitImage.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Provider
+metadata:
+  name: vcenter01-vddk
+  namespace: openshift-mtv
+spec:
+  type: vsphere
+  url: 'https://{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "vcenterFQDN" hub}}/sdk'
+  secret:
+    name: vcenter-credentials
+    namespace: openshift-mtv
+  settings:
+    sdkEndpoint: vcenter
+    vddkInitImage: '{{hub fromConfigMap "policies" (printf "%s-site-values" .ManagedClusterName) "vddkInitImage" hub}}'

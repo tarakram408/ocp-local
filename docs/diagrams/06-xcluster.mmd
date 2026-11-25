@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph HUB["hub-a hub"]
+    mtv["MTV (cnv-mtv-integrations)<br/>Migration plans"]
+    prov["Providers ocp-a, ocp-b<br/>(ManagedServiceAccount tokens)"]
+    maps["Maps ocp-a-to-ocp-b / ocp-b-to-ocp-a<br/>pod + 49 NADs · storage → ontap-nas RWX"]
+    cron["CronJob kubevirt-ca-exchange<br/>every 6 h"]
+  end
+  subgraph WC["ocp-a (DC1)"]
+    wvh["virt-handler (per node)<br/>10.60.160.10-.25 (16)"]
+    wsc["virt-synchronization-controller<br/>:9185"]
+  end
+  subgraph C1["ocp-b (DC2)"]
+    cvh["virt-handler (per node)<br/>10.60.160.26-.35 (10)"]
+    csc["virt-synchronization-controller<br/>:9185"]
+  end
+  mtv --> prov --> maps
+  mtv -->|Cold: export → import over HTTPS| C1
+  mtv -->|Live: VMIM on both sides| wsc
+  wsc <-->|"9185 (TLS)"| csc
+  wvh <-->|"VM memory + disk<br/>VLAN 333 stretched"| cvh
+  cron -.->|kubevirt-ca → kubevirt-external-ca| WC
+  cron -.-> C1

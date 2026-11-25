@@ -1,0 +1,18 @@
+# Runs on each hub only. Copies the switches in the policies/local-cluster-labels ConfigMap
+# (hubs/<hub>/local-cluster-labels.yaml) onto the hub's own ManagedCluster as config.example.com/<key>,
+# so the hub is selected by the same Placements as the production clusters.
+# Managed-cluster template (no "hub" keyword): resolved by the policy controller on the hub itself.
+object-templates-raw: |
+  {{- $cm := lookup "v1" "ConfigMap" "policies" "local-cluster-labels" }}
+  {{- if $cm.data }}
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: cluster.open-cluster-management.io/v1
+      kind: ManagedCluster
+      metadata:
+        name: local-cluster
+        labels:
+          {{- range $k, $v := $cm.data }}
+          config.example.com/{{ $k }}: '{{ $v }}'
+          {{- end }}
+  {{- end }}

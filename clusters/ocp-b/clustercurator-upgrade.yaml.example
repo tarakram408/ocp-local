@@ -1,0 +1,22 @@
+# Upgrade ocp-b from git, with AAP draining it from the GTM first.
+# Needs the AAP operator on the hub and a Secret "aap-credentials" (AAP host + token) in this namespace.
+# To use: copy to clustercurator-upgrade.yaml, set the version, add it to kustomization.yaml, merge.
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: ClusterCurator
+metadata:
+  name: ocp-b
+  namespace: ocp-b
+spec:
+  desiredCuration: upgrade
+  upgrade:
+    desiredUpdate: 4.22.CHANGEME
+    monitorTimeout: 120
+    towerAuthSecret: aap-credentials
+    prehook:
+      - name: gtm-drain-cluster          # AAP job template name
+        extra_vars:
+          cluster: ocp-b
+    posthook:
+      - name: gtm-enable-cluster
+        extra_vars:
+          cluster: ocp-b

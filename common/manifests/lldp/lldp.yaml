@@ -1,0 +1,23 @@
+# Turns on LLDP receive on every vNIC so each node reports which Fabric Interconnect port it is on:
+#   oc get nns <node> -o jsonpath='{.status.currentState.interfaces[?(@.name=="ens5f0")].lldp}'
+# Only adds lldp to the interfaces; their bond and VLAN settings come from the other NNCPs.
+# Applies to every node with the worker role, which includes the schedulable control plane and the
+# single-node hubs. No reboot.
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: lldp
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  maxUnavailable: 1
+  desiredState:
+    interfaces:                       # the 8 vNICs of the OpenShift UCS layout (vCon 1, PCI functions 0-7)
+      - { name: ens5f0, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f1, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f2, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f3, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f4, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f5, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f6, type: ethernet, lldp: { enabled: true } }
+      - { name: ens5f7, type: ethernet, lldp: { enabled: true } }

@@ -1,0 +1,26 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ontap-nas
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    storageclass.kubevirt.io/is-default-virt-class: "true"
+    # <shift-annotation-key>: "<value>"    # CHANGEME: NetApp Shift Toolkit annotation (storage session, section 8)
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-nas
+  storagePools: "ontap-nas-lif1:.*;ontap-nas-lif2:.*"   # both data LIFs / aggregates of the SVM
+  provisioningType: thin
+  snapshots: "true"
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: trident-snapshotclass
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: csi.trident.netapp.io
+deletionPolicy: Delete

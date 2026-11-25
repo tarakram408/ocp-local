@@ -1,0 +1,47 @@
+# Registers ACM-managed prod clusters as Argo CD destinations so ApplicationSets can target them.
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: prod-clusters
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  clusterSets:
+    - prod
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels:
+            env: prod
+---
+apiVersion: apps.open-cluster-management.io/v1beta1
+kind: GitOpsCluster
+metadata:
+  name: prod-clusters
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  argoServer:
+    cluster: local-cluster
+    argoNamespace: openshift-gitops
+  placementRef:
+    apiVersion: cluster.open-cluster-management.io/v1beta1
+    kind: Placement
+    name: prod-clusters
+    namespace: openshift-gitops
+---
+# Teaches the ApplicationSet clusterDecisionResource generator how to read PlacementDecisions.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acm-placement
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  apiVersion: cluster.open-cluster-management.io/v1beta1
+  kind: placementdecisions
+  statusListKey: decisions
+  matchKey: clusterName

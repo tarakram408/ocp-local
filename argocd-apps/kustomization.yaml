@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - hub-config.yaml
+  - clusters.yaml
+  - policies.yaml
+  - common-config.yaml
+  - trident-protect-appset.yaml
+  - workloads-appset.yaml

@@ -1,0 +1,39 @@
+# VM networks for both production clusters: one localnet NetworkAttachmentDefinition per VMware port group with VMs.
+# Each NAD is named after its port group. Kubernetes names allow only lower case letters, digits, "-" and ".", so
+# "_" and "." in a port group name become "-": dv_vm_vlan101 -> dv-vm-vlan101 (here shortened to vm-vlan101).
+# Examples only: generate one entry per port group from an RVTools export of the vCenter.
+#
+# The NADs reach the physical network through physicalNetworkName:
+#   vm-trunk:      br-vm on bond2 (vm-uplink NNCP): the VM VLANs
+#   storage-trunk: br-storage on bond1 (storage-network NNCPs): in-guest NFS VLANs, which use the storage uplinks
+# They live in the 'default' namespace, which every namespace can use: a VM refers to default/<name>.
+# MTU 1500 matches the VMware DVS and the bonds. No IPAM: the VMs keep their own static or DHCP addresses.
+# The same NADs are applied to both clusters, so a replicated VM finds the same network names.
+# Keep the MTV network maps (mtv-vmware-source, mtv-hub-maps) in step with these names.
+---
+# dv_vm_vlan101
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: vm-vlan101
+  namespace: default
+spec:
+  config: '{"cniVersion":"0.4.0","name":"vm-vlan101","type":"ovn-k8s-cni-overlay","topology":"localnet","physicalNetworkName":"vm-trunk","netAttachDefName":"default/vm-vlan101","vlanID":101,"mtu":1500}'
+---
+# dv_vm_vlan102
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: vm-vlan102
+  namespace: default
+spec:
+  config: '{"cniVersion":"0.4.0","name":"vm-vlan102","type":"ovn-k8s-cni-overlay","topology":"localnet","physicalNetworkName":"vm-trunk","netAttachDefName":"default/vm-vlan102","vlanID":102,"mtu":1500}'
+---
+# vm-vlan101
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: vm-storage-vlan555
+  namespace: default
+spec:
+  config: '{"cniVersion":"0.4.0","name":"vm-storage-vlan555","type":"ovn-k8s-cni-overlay","topology":"localnet","physicalNetworkName":"storage-trunk","netAttachDefName":"default/vm-storage-vlan555","vlanID":555,"mtu":1500}'

@@ -1,0 +1,16 @@
+# Prerequisites for the Trident Protect Helm chart, which Argo CD installs per production cluster
+# (argocd-apps/trident-protect-appset.yaml). Argo CD runs the chart's pre-upgrade hook (Job
+# trident-protect-pre-upgrade-hook) before anything else, even on a first install, and that Job runs as the service
+# account trident-protect-controller-manager, which the chart only creates in its main install. Without this account
+# the Job never starts and the app waits forever ("waiting for completion of hook", 12-16 Nov). The chart takes the
+# account over once it installs (only its name is enforced here).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trident-protect
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trident-protect-controller-manager
+  namespace: trident-protect

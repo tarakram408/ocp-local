@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - acm/multiclusterhub.yaml
+  - acm/provisioning.yaml
+  - acm/agentserviceconfig.yaml
+  - acm/clusterimageset-4.22.yaml
+  - acm/search-storage.yaml
+  - acm/clusterset.yaml
+  - acm/install-secrets-namespace.yaml
+  - gitops/acm-integration.yaml
+  - network/nmstate-operator.yaml
+  - network/nmstate.yaml
+  - observability/namespace.yaml        # always; MultiClusterObservability is switched per hub (common/, observability label)
+  - backup/dpa.yaml                     # hub backup location, both hubs (SVM_OCP_B S3, DC2)
+  - node/kubeletconfig.yaml            # memory reservation + maxPods 500; first apply reboots each hub once

@@ -1,0 +1,7 @@
+# Placeholder workload so the ApplicationSet has something to sync. Replace with real manifests.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example
+data:
+  note: "deployed by the prod-workloads ApplicationSet"

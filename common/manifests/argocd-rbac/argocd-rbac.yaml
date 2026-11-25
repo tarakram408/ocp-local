@@ -1,0 +1,29 @@
+# Who can see and use the hub Argo CD. Argo CD has its own RBAC: OpenShift cluster-admin alone does not
+# give access to it. Logins come through OpenShift, so the OpenShift groups apply, including the AD groups
+# synced by common-ldap-sync. The group names come from common-values, the same ones common-rbac binds:
+#   groupPlatformAdmins -> role:admin, groupPlatformReaders -> role:readonly,
+#   readOnlyForAllUsers "true" -> everyone who logs in may view (defaultPolicy role:readonly).
+# Hubs only (the hub Argo CD, openshift-gitops). Users log out of Argo CD and back in to pick up a change.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-argocd-rbac
+spec:
+  remediationAction: enforce
+  severity: medium
+  object-templates-raw: |
+    {{hub $p := "g, system:cluster-admins, role:admin\\ng, cluster-admins, role:admin\\ng, break-glass, role:admin" hub}}
+    {{hub range (split "," (fromConfigMap "policies" "common-values" "groupPlatformAdmins")) hub}}{{hub $p = printf "%s\\ng, %s, role:admin" $p (trim .) hub}}{{hub end hub}}
+    {{hub range (split "," (fromConfigMap "policies" "common-values" "groupPlatformReaders")) hub}}{{hub $p = printf "%s\\ng, %s, role:readonly" $p (trim .) hub}}{{hub end hub}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: argoproj.io/v1beta1
+        kind: ArgoCD
+        metadata:
+          name: openshift-gitops
+          namespace: openshift-gitops
+        spec:
+          rbac:
+            scopes: '[groups]'
+            defaultPolicy: '{{hub if eq (fromConfigMap "policies" "common-values" "readOnlyForAllUsers") "true" hub}}role:readonly{{hub end hub}}'
+            policy: "{{hub $p hub}}\n"

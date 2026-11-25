@@ -1,0 +1,35 @@
+# Values that differ for ocp-a. Policies look these up by cluster name, so the manifests stay identical.
+# Must be in the "policies" namespace: hub templates can only read from the policy's own namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ocp-a-site-values
+  namespace: policies
+data:
+  ontapManagementLIF: "10.60.202.35"            # SVM_OCP_A management (a0a-714), as built 5 Nov
+  ontapDataLIF: "10.60.140.151"               # svm-a_lif1 on nas01e (backend ontap-nas-lif1)
+  ontapAggregate: "aggr3e_ssd1"             # nas01e
+  ontapDataLIF2: "10.60.140.152"              # svm-a_lif2 on nas01f (backend ontap-nas-lif2)
+  ontapAggregate2: "aggr3f_ssd1"            # nas01f
+  ontapSVM: "SVM_OCP_A"                      # production SVM for ocp-a (aggregates aggr3e_ssd1/aggr3f_ssd1). VMware datastores stay on VMW* SVMs; Shift uses one extra backend per SVM
+  ontapExportPolicy: "default"   # SVM_OCP_A default: 10.60.140.0/24 rw, superuser any (rule 1 0.0.0.0/0 removed 5 Nov)
+  # live migration (VLAN 333): a pod-assigned pool (whereabouts), not one address per node; until 17 Nov the blades'
+  # former ESXi vMotion addresses (.81-.105, released back to IPAM).
+  # Subnet shared with ocp-b (10.60.160.0/25 holds both clusters' ranges) so the two live migration networks are
+  # on-link to each other, as cross-cluster live migration needs; each cluster excludes all but its own addresses.
+  # Usable on ocp-a: .10-.25 (IPAM block reserved by Corp on 17 Nov, DNS site-a-pool-01..16-vm.example.com): 16
+  # (12 nodes + 2 synchronization controllers + 2 spare for rolling updates). One more address per added node.
+  liveMigrationSubnets: "10.60.160.0/25"
+  liveMigrationExclude: "10.60.160.0/29,10.60.160.8/31,10.60.160.26/31,10.60.160.28/30,10.60.160.32/27,10.60.160.64/26"
+  # common/ day-2 configuration (used only where the matching config.example.com label is enabled)
+  deschedulerMode: "Predictive"                 # descheduler: Predictive logs only; "Automatic" rebalances VMs
+  vcenterFQDN: "vcenter01.example.com"     # MTV VMware source (policy mtv-vmware-source)
+  vddkInitImage: "image-registry.openshift-image-registry.svc:5000/openshift-mtv/vddk@sha256:a4ab33dfdb83b200d3d292661f254a93eecf9b2d50f53270364f65464e701408"   # VMware VDDK 8.0.3, pinned by digest to the image the provider uses since 18 Nov (scripts/build-vddk-image.sh; rebuild -> update here)
+  consoleProductName: "Corp OCP-A"                # browser tab title (common console policy)
+  bannerText: "PRODUCTION - ocp-a (primary) - changes are made through git only"
+  bannerColor: "#ffffff"
+  bannerBackground: "#a30000"
+  metallbAddresses: "172.28.55.CHANGEME-172.28.55.CHANGEME"   # CHANGEME: free range on the management VLAN, if MetalLB is enabled
+  alertClusterName: "ocp-a"                         # shown in the alert e-mail subject
+  alertEmailFrom: "openshift-ocp-a-alert@example.com"          # CHANGEME if the mail team assigns a different sender
+  vmTagEnforcement: "Warn"                     # Corp VM tags on new VMs: Warn (created, with a warning) or Deny (refused). docs/vm-tagging.md

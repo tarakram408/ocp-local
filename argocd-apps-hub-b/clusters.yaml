@@ -1,0 +1,32 @@
+# Cluster lifecycle. Adding a cluster syncs automatically.
+# Removing one does NOT: prune is off, so a deleted ClusterInstance shows OutOfSync until
+# someone deliberately syncs with prune. That is the guard against a bad commit destroying prod.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clusters
+  namespace: openshift-gitops
+  labels:
+    velero.io/exclude-from-backup: "true"       # each hub\'s apps come from its own folder; never restored onto the other hub
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CHANGEME/ocp-local.git
+    targetRevision: main
+    path: clusters
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

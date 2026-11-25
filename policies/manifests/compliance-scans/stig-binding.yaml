@@ -1,0 +1,20 @@
+# Scan only. Remediations are reviewed and committed to git as policies, not auto-applied.
+apiVersion: compliance.openshift.io/v1alpha1
+kind: ScanSettingBinding
+metadata:
+  name: stig
+  namespace: openshift-compliance
+profiles:
+  - apiGroup: compliance.openshift.io/v1alpha1
+    kind: Profile
+    name: ocp4-stig
+  - apiGroup: compliance.openshift.io/v1alpha1
+    kind: Profile
+    name: ocp4-stig-node
+  - apiGroup: compliance.openshift.io/v1alpha1
+    kind: Profile
+    name: rhcos4-stig
+settingsRef:
+  apiGroup: compliance.openshift.io/v1alpha1
+  kind: ScanSetting
+  name: default

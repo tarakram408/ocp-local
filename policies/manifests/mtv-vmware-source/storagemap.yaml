@@ -1,0 +1,109 @@
+# MTV storage map vCenter vcenter01 -> ocp-a (policy mtv-vmware-source), for Shift (cold) plans: each NFS datastore
+# maps to the Shift StorageClass on its own SVM (policies shift-backends, shift-operator); MTV creates the disk PVCs
+# there and Shift clones and converts the VMDKs in place. Charlie ds_c_0-3 (SVM SVM_VMW_C) -> ontap-nas-vmw-c;
+# Bravo ds_b_0-6 and Log ds_l_0-2 (SVM SVM_VMW_B, 23 Nov) -> ontap-nas-vmw-b; Alpha ds_a_0-2 (SVM SVM_VMW_A, 23 Nov) ->
+# ontap-nas-vmw-a. Delta and the other SVMs need their own backend first.
+# Note (shift-backends): the SVM_VMW_C backend uses ds_c_3's LIF and aggregate.
+# Warm plans use the VDDK map instead (storagemap-vddk.yaml), to ontap-nas.
+# Each datastore by vCenter id AND name (23 Nov): the console's storage map page lists only entries that carry the id,
+# and the policy is mustonlyhave, so the entries must match what MTV and the console expect. Ids from
+# oc -n openshift-mtv get storagemap <map> -o json | jq '.status.references' (vCenter vcenter01).
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: vcenter01-to-ocp
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: vcenter01
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    - source:
+        id: datastore-4086
+        name: ds_c_0
+      destination:
+        storageClass: ontap-nas-vmw-c
+    - source:
+        id: datastore-4087
+        name: ds_c_1
+      destination:
+        storageClass: ontap-nas-vmw-c
+    - source:
+        id: datastore-4088
+        name: ds_c_2
+      destination:
+        storageClass: ontap-nas-vmw-c
+    - source:
+        id: datastore-8374
+        name: ds_c_3
+      destination:
+        storageClass: ontap-nas-vmw-c
+    - source:
+        id: datastore-4103
+        name: ds_b_0
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4104
+        name: ds_b_1
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4105
+        name: ds_b_2
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4092
+        name: ds_b_3
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4093
+        name: ds_b_4
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4094
+        name: ds_b_5
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4095
+        name: ds_b_6
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4082
+        name: ds_l_0
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4083
+        name: ds_l_1
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4084
+        name: ds_l_2
+      destination:
+        storageClass: ontap-nas-vmw-b
+    - source:
+        id: datastore-4163
+        name: ds_a_0
+      destination:
+        storageClass: ontap-nas-vmw-a
+    - source:
+        id: datastore-4101
+        name: ds_a_1
+      destination:
+        storageClass: ontap-nas-vmw-a
+    - source:
+        id: datastore-4102
+        name: ds_a_2
+      destination:
+        storageClass: ontap-nas-vmw-a

@@ -1,0 +1,33 @@
+# Writes the Alertmanager configuration (common/alerting/alertmanager.yaml with the placeholders filled in)
+# to openshift-monitoring/alertmanager-main. The values come from common-values and <cluster>-site-values;
+# the SMTP password, only when alertSmtpAuthUser is set, from the hub secret alertmanager-smtp.
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: common-alerting
+spec:
+  remediationAction: enforce
+  severity: medium
+  object-templates-raw: |
+    {{hub $site := printf "%s-site-values" .ManagedClusterName hub}}
+    {{hub $user := fromConfigMap "policies" "common-values" "alertSmtpAuthUser" hub}}
+    {{hub $auth := "" hub}}
+    {{hub if ne $user "" hub}}{{hub $auth = printf "  smtp_auth_username: '%s'\n  smtp_auth_password: '%s'" $user (fromSecret "policies" "alertmanager-smtp" "password" | base64dec | replace "'" "''") hub}}{{hub end hub}}
+    {{hub $cfg := fromConfigMap "policies" "alertmanager-template" "alertmanager.yaml" hub}}
+    {{hub $cfg = replace "__SMARTHOST__" (fromConfigMap "policies" "common-values" "alertSmtpSmarthost") $cfg hub}}
+    {{hub $cfg = replace "__HELLO__" (fromConfigMap "policies" "common-values" "alertSmtpHello") $cfg hub}}
+    {{hub $cfg = replace "__REQUIRE_TLS__" (fromConfigMap "policies" "common-values" "alertSmtpRequireTLS") $cfg hub}}
+    {{hub $cfg = replace "__TO__" (fromConfigMap "policies" "common-values" "alertEmailTo") $cfg hub}}
+    {{hub $cfg = replace "__FROM__" (fromConfigMap "policies" $site "alertEmailFrom") $cfg hub}}
+    {{hub $cfg = replace "__CLUSTER__" (fromConfigMap "policies" $site "alertClusterName") $cfg hub}}
+    {{hub $cfg = replace "__AUTH__" $auth $cfg hub}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: alertmanager-main
+          namespace: openshift-monitoring
+        type: Opaque
+        data:
+          alertmanager.yaml: '{{hub $cfg | base64enc hub}}'

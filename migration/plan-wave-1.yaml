@@ -1,0 +1,41 @@
+# One plan per migration wave (copy this file, change the name and VM list). Cold migration through MTV with the
+# NetApp Shift operator converting the disks (docs/shift-operator.md). Start it from the console (Plan > Start) or
+# with the Migration object at the end of this file.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Plan
+metadata:
+  name: wave-1                                # CHANGEME
+  namespace: openshift-mtv
+spec:
+  description: "Wave 1"
+  provider:
+    source:
+      name: vcenter01
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    network:
+      name: vcenter01-to-ocp
+      namespace: openshift-mtv
+    storage:
+      name: vcenter01-to-ocp
+      namespace: openshift-mtv
+  targetNamespace: virtual-machines           # CHANGEME: must already exist on ocp-a
+  type: cold                                  # Shift takes a snapshot: cold only
+  targetPowerState: "on"                      # start the VMs after migration (MTV 2.10+; "Power on" in the console)
+  preserveStaticIPs: true
+  vms:
+    - name: CHANGEME-vm-01                    # VM names exactly as in vCenter; VMs on a mapped Charlie datastore
+---
+# Starts the plan. Apply only when the plan shows Ready (oc get plan wave-1 -n openshift-mtv).
+# apiVersion: forklift.konveyor.io/v1beta1
+# kind: Migration
+# metadata:
+#   name: wave-1-run-1
+#   namespace: openshift-mtv
+# spec:
+#   plan:
+#     name: wave-1
+#     namespace: openshift-mtv

@@ -1,0 +1,49 @@
+# Gives VMs a path to the datacenter VLANs: the two VM_Uplink vNICs -> bond2 -> OVS bridge br-vm -> OVN localnet "vm-trunk".
+# As built and tested on ocp-a (6 Nov: testvm on vlan 3051 took its DHCP address).
+# Any of the three VM network options (NAD, UDN, CUDN) that reaches a physical VLAN needs this mapping.
+# nmstate rolls a node back automatically if the change breaks its connectivity.
+# Corp UCS layout: bond0 = management (install time), bond1 = storage (storage-network policy),
+# bond2 = VM traffic (this file), bond3 = live migration (migration-network policy).
+# The VM networks on this mapping are the NADs in policies/manifests/vm-networks/ (one per port group; the
+# VLAN 222 and 555 port groups use the storage bond instead, through the storage-trunk mapping in storage-network).
+# The UCS VM vNICs must carry all of their VLANs, including 308 (DVS01 today), 24 and 88.
+# Settings follow the VMware side: MTU 1500, no LACP (the DVS uses port-ID teaming), so active-backup.
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: vm-uplink
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  maxUnavailable: 1                  # one node at a time
+  desiredState:
+    interfaces:
+      - name: bond2
+        type: bond
+        state: up
+        mtu: 1500                    # Corp checklist: 1500 on all NICs
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        link-aggregation:
+          mode: active-backup        # UCS Fabric Interconnects in end-host mode: no LACP to the server
+          options:
+            miimon: "100"
+          port:                      # 8-vNIC OpenShift UCS layout: VM_Uplink_FI-A/B (the Pub pair was removed, its VLANs moved here)
+            - ens5f2                 # VM_Uplink_FI-A, fabric A
+            - ens5f3                 # VM_Uplink_FI-B, fabric B
+      - name: br-vm
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options:
+            stp: false
+          port:
+            - name: bond2
+    ovn:
+      bridge-mappings:
+        - localnet: vm-trunk         # the name NADs and CUDNs refer to as the physical network
+          bridge: br-vm
+          state: present

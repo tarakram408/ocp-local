@@ -1,0 +1,15 @@
+# The source. The destination provider "host" (this cluster) is created by MTV automatically.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Provider
+metadata:
+  name: vcenter01
+  namespace: openshift-mtv
+spec:
+  type: vsphere
+  url: https://vcenter01.example.com/sdk        # CHANGEME: use the same FQDN the Shift Toolkit uses
+  secret:
+    name: vcenter-credentials
+    namespace: openshift-mtv
+  settings:
+    sdkEndpoint: vcenter
+    # No vddkInitImage: VDDK is not used; the NetApp Shift Toolkit converts disks in place (cold migration)

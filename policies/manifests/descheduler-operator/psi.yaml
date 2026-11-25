@@ -1,0 +1,22 @@
+# KubeVirtRelieveAndMigrate needs pressure stall information (PSI) on every node that runs VMs. The 99- prefix sorts
+# after the default 98- configs that turn PSI off. One per pool: the control plane nodes run VMs too, and the worker
+# pool does not cover them. FIRST APPLY REBOOTS EVERY NODE, one at a time (VMs live-migrate off first).
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-master-psi-karg
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  kernelArguments:
+    - psi=1
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-worker-psi-karg
+  labels:
+    machineconfiguration.openshift.io/role: worker
+spec:
+  kernelArguments:
+    - psi=1
